@@ -1,0 +1,52 @@
+{
+  "version": 2,
+  "auto_transcode_enabled": true,
+  "target_codec": "h264",
+  "h264": {
+    "profile": "high",
+    "pixel_format": "yuv420p",
+    "crf": 18,
+    "preset": "fast",
+    "container": "mp4"
+  },
+  "vp8": {
+    "crf": 10,
+    "cpu_used": 4,
+    "container": "webm"
+  },
+  "hevc": {
+    "profile": "main",
+    "pixel_format": "yuv420p",
+    "crf": 18,
+    "preset": "faster",
+    "container": "mp4"
+  },
+  "vp9": {
+    "crf": 20,
+    "cpu_used": 4,
+    "deadline": "good",
+    "container": "webm"
+  },
+  "av1": {
+    "crf": 20,
+    "cpu_used": 8,
+    "container": "mkv"
+  },
+  "general": {
+    "hardware_encoding": true,
+    "hardware_decode": true,
+    "backup_original": true,
+    "backup_suffix": "-source",
+    "timeout_seconds": 600,
+    "verify_output": true,
+    "min_free_space_mb": 500,
+    "force_transcode": false,
+    "max_resolution": null,
+    "max_fps": null,
+    "max_bitrate_kbps": null
+  },
+  "usdb_integration": {
+    "use_usdb_resolution": true,
+    "use_usdb_fps": true
+  }
+}
