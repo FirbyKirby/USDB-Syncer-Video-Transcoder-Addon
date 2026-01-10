@@ -2,6 +2,9 @@
 	"folders": [
 		{
 			"path": "."
+		},
+		{
+			"path": "../usdb_syncer"
 		}
 	],
 	"settings": {}
