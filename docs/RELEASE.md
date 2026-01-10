@@ -41,3 +41,13 @@ The workflow performs the following steps:
 ## Expected Output
 
 The primary output of the release process is a `video_transcoder.zip` file attached to the GitHub Release. This zip file is ready for distribution to users of USDB_Syncer.
+
+### Important Note on GitHub Assets
+
+GitHub automatically generates two files for every release:
+- `Source code (zip)`
+- `Source code (tar.gz)`
+
+**These files should be ignored.** They are not compatible with USDB_Syncer because they contain the entire repository structure (including developer files) and are named based on the repository name rather than the addon name.
+
+Always use the **`video_transcoder.zip`** asset created by the workflow, as it has the specific directory structure required for the addon to be loaded correctly by USDB_Syncer.
