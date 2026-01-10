@@ -3,11 +3,17 @@
 This guide explains every configuration option, default values, recommended settings, and provides ready-to-use examples for common goals.
 
 Where the file lives
-- Created on addon load at [config.json](../config.json) by [config.load_config()](../config.py:110)
+- The runtime config is created on addon load in the USDB Syncer data directory as `video_transcoder_config.json` by [config.load_config()](../config.py:110).
+- Exact path varies by platform:
+  - Windows: `C:\Users\<username>\AppData\Local\bohning\usdb_syncer\video_transcoder_config.json`
+  - macOS: `~/Library/Application Support/bohning/usdb_syncer/video_transcoder_config.json`
+  - Linux: `~/.local/share/bohning/usdb_syncer/video_transcoder_config.json`
+
+Note: The repository includes [config.json.example](../config.json.example:1) as a template for reference. It is not the runtime config file.
 
 How to edit
-- **Recommended**: Use the GUI via **Tools → Transcoder Settings...** in USDB Syncer.
-- **Manual**: Close USDB_Syncer, edit the JSON file with a text editor, then restart USDB_Syncer.
+- **Recommended**: Use the GUI via **Tools → Video Transcoder Settings** in USDB Syncer.
+- **Manual (advanced)**: Close USDB Syncer, edit `video_transcoder_config.json` in the USDB Syncer data directory (see paths above), then restart USDB Syncer.
 
 Note: JSON does not support comments. Examples below include only the keys you need to change. Unspecified options keep their existing values.
 

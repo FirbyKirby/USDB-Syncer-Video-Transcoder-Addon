@@ -16,6 +16,18 @@ Log file location
 
 Path is defined by the USDB Syncer application paths utility.
 
+## Where are my settings stored?
+
+Recommended editing method
+- Use the GUI: **Tools → Video Transcoder Settings**
+
+Runtime config file location (advanced)
+- Windows: `C:\Users\<username>\AppData\Local\bohning\usdb_syncer\video_transcoder_config.json`
+- macOS: `~/Library/Application Support/bohning/usdb_syncer/video_transcoder_config.json`
+- Linux: `~/.local/share/bohning/usdb_syncer/video_transcoder_config.json`
+
+Note: [config.json.example](../config.json.example:1) in the repository is a template for reference, not the runtime config file.
+
 ## Common errors and fixes
 
 1) FFMPEG not available - skipping video transcode
@@ -30,7 +42,7 @@ Path is defined by the USDB Syncer application paths utility.
 
 3) Insufficient disk space for transcoding
 - Cause: Free space below min_free_space_mb
-- Fix: Free up disk space or lower general.min_free_space_mb in config
+- Fix: Free up disk space or lower general.min_free_space_mb in **Tools → Video Transcoder Settings** (or by editing the runtime config file listed above)
 - Check setting: [config.GeneralConfig](../config.py:64)
 
 4) FFMPEG encoding failed or FFMPEG timeout after Ns
@@ -193,7 +205,7 @@ Access
 ## Videos won’t play
 
  Try these steps
-- Set target_codec to h264 in config and use high profile, pixel_format yuv420p in [config.H264Config](../config.py:19). With strict matching, the addon will convert non-conforming inputs to these exact settings
+- Set target_codec to h264 in **Tools → Video Transcoder Settings** (or in the runtime config file) and use high profile, pixel_format yuv420p in [config.H264Config](../config.py:19). With strict matching, the addon will convert non-conforming inputs to these exact settings
 - Ensure the file extension is .mp4 and the song’s #VIDEO header points to the new filename
 - Confirm the addon updated metadata: the original was renamed to name-source.ext and the new file exists
 - Re-run the download so the addon processes the video again
@@ -217,7 +229,12 @@ If not found, install FFMPEG and add it to your PATH, or set an explicit FFMPEG 
 Include the following in your report
 - USDB_Syncer version and OS
 - CPU/GPU details (especially whether you have Intel QuickSync)
-- The contents of config.json (especially auto_transcode_enabled)
+- The contents of the Video Transcoder runtime config file `video_transcoder_config.json` (especially auto_transcode_enabled)
+  - Preferred: Open **Tools → Video Transcoder Settings** and copy relevant settings
+  - If you need to find the file on disk:
+    - Windows: `C:\Users\<username>\AppData\Local\bohning\usdb_syncer\video_transcoder_config.json`
+    - macOS: `~/Library/Application Support/bohning/usdb_syncer/video_transcoder_config.json`
+    - Linux: `~/.local/share/bohning/usdb_syncer/video_transcoder_config.json`
 - A short excerpt of usdb_syncer.log around the time of the failure (redact personal paths if needed)
 - The exact error message (copy from the log)
 

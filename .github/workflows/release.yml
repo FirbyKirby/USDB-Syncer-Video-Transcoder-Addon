@@ -37,7 +37,6 @@ jobs:
           find video_transcoder -name "*.pyo" -delete
           
           # Explicitly remove excluded files if they exist in the target
-          rm -f video_transcoder/config.json
           rm -f video_transcoder/docs/RELEASE.md
 
       - name: Create zip file

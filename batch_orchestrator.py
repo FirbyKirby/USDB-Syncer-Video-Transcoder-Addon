@@ -171,6 +171,7 @@ class BatchTranscodeOrchestrator:
         self._backup_worker: Optional[RollbackBackupWorker] = None
         self._backup_dialog: Optional[RollbackBackupProgressDialog] = None
         self._backup_success: bool = False
+        self._backup_abort_requested: bool = False
         
     def start_batch_workflow(self) -> None:
         """Entry point: start the entire batch transcode workflow."""
@@ -397,10 +398,17 @@ class BatchTranscodeOrchestrator:
         self._backup_worker.finished.connect(self._on_backup_finished)
         self._backup_worker.error.connect(self._on_backup_error)
         self._backup_worker.aborted.connect(self._on_backup_aborted)
-        self._backup_dialog.abort_requested.connect(self._backup_worker.abort)
         
-        # Reset success flag
+        def on_abort_requested():
+            self._backup_abort_requested = True
+            if self._backup_worker:
+                self._backup_worker.abort()
+        
+        self._backup_dialog.abort_requested.connect(on_abort_requested)
+        
+        # Reset flags
         self._backup_success = False
+        self._backup_abort_requested = False
         
         # Start worker
         self._backup_worker.start()
@@ -415,6 +423,10 @@ class BatchTranscodeOrchestrator:
 
     def _on_backup_finished(self) -> None:
         """Called when backup worker finishes successfully."""
+        if self._backup_abort_requested:
+            self._on_backup_aborted()
+            return
+            
         self._backup_success = True
         if self._backup_dialog:
             self._backup_dialog.accept()

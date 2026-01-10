@@ -61,10 +61,29 @@ class RollbackBackupWorker(QtCore.QThread):
                 # Ensure parent directory exists (RollbackManager should handle this, but being safe)
                 rollback_backup_path.parent.mkdir(parents=True, exist_ok=True)
                 
-                # Perform the copy
-                shutil.copy2(str(candidate.video_path), str(rollback_backup_path))
-                
-                # Update total bytes copied (using float for MB or just bytes, design says float)
+                # Perform the copy in chunks to allow for responsive abort
+                source_size = candidate.video_path.stat().st_size
+                with open(candidate.video_path, "rb") as fsrc:
+                    with open(rollback_backup_path, "wb") as fdst:
+                        chunk_size = 1024 * 1024  # 1MB chunks
+                        bytes_copied_file = 0
+                        while True:
+                            if self._abort_requested:
+                                _logger.info("Rollback backup creation aborted by user during file copy")
+                                # Clean up partial file
+                                fdst.close()
+                                rollback_backup_path.unlink(missing_ok=True)
+                                self.aborted.emit()
+                                return
+                            
+                            chunk = fsrc.read(chunk_size)
+                            if not chunk:
+                                break
+                            fdst.write(chunk)
+                            bytes_copied_file += len(chunk)
+                            self.progress.emit(i, total, filename, bytes_copied_total + bytes_copied_file)
+
+                # Update total bytes copied
                 # We'll use bytes for precision and format in the dialog
                 bytes_copied_total += candidate.video_path.stat().st_size
                 

@@ -66,9 +66,21 @@ After copying the zip into the addons directory, restart USDB_Syncer. You should
 
 ## Configuration
 
-The addon can be configured graphically via **Tools → Transcoder Settings...** in USDB Syncer.
+The addon can be configured graphically via **Tools → Video Transcoder Settings** in USDB Syncer.
 
-Alternatively, you can edit the config file at [config.json](config.json). This file is created automatically when the addon is loaded. Full option reference and presets live in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+The runtime configuration file is stored in the USDB Syncer data directory (outside the addon folder). This is required for `.zip`-based addon installs and ensures settings persist across addon upgrades.
+
+Runtime config file location (exact path varies by platform)
+- Windows: `C:\Users\<username>\AppData\Local\bohning\usdb_syncer\video_transcoder_config.json`
+- macOS: `~/Library/Application Support/bohning/usdb_syncer/video_transcoder_config.json`
+- Linux: `~/.local/share/bohning/usdb_syncer/video_transcoder_config.json`
+
+Manual editing (advanced)
+1) Close USDB Syncer.
+2) Edit `video_transcoder_config.json` at the path above.
+3) Restart USDB Syncer.
+
+Note: The repository contains [config.json.example](config.json.example:1) as a template for reference. It is not the runtime config file that USDB Syncer reads.
 
 Default config excerpt
 ```json
@@ -87,7 +99,10 @@ Default config excerpt
 ```
 
 Important paths and behavior
-- Config file location: [config.json](config.json) (created on first run by [config.load_config()](config.py:109))
+- Runtime config file location: USDB Syncer data directory `video_transcoder_config.json` (created on first run by [config.load_config()](config.py:109))
+  - Windows: `C:\Users\<username>\AppData\Local\bohning\usdb_syncer\video_transcoder_config.json`
+  - macOS: `~/Library/Application Support/bohning/usdb_syncer/video_transcoder_config.json`
+  - Linux: `~/.local/share/bohning/usdb_syncer/video_transcoder_config.json`
 - Backup originals: when enabled, originals are preserved as name-source.ext (see default [config.GeneralConfig](config.py:64))
 - Automatic run: executes after each download via the USDB Syncer hooks system
 - Force transcode: set [config.GeneralConfig.force_transcode](config.py:79) to true to force transcoding even if the input already matches the target codec and settings. Useful for testing or ensuring fresh encodes. Applies to both automatic and batch workflows
@@ -269,7 +284,10 @@ Sync tracking (critical)
 - Will my original file be kept? Yes, if general.backup_original is true. The original is renamed to name-source.ext.
 - Does it re-encode audio? Audio is copied when compatible with the target container; otherwise it is re-encoded to AAC (MP4/MOV) or Opus (WebM/MKV).
 - Which container will I get? Defaults are H.264 → .mp4, VP8/VP9 → .webm, HEVC → .mp4, AV1 → .mkv, but you can override per-codec container via the `container` config key.
-- Where is the config file? [config.json](config.json) (created on first run by [config.load_config()](config.py:110)).
+- Where is the config file? The runtime config is stored in the USDB Syncer data directory as `video_transcoder_config.json` (created on first run by [config.load_config()](config.py:110)).
+  - Windows: `C:\Users\<username>\AppData\Local\bohning\usdb_syncer\video_transcoder_config.json`
+  - macOS: `~/Library/Application Support/bohning/usdb_syncer/video_transcoder_config.json`
+  - Linux: `~/.local/share/bohning/usdb_syncer/video_transcoder_config.json`
 - How do I turn off automatic transcoding? Set auto_transcode_enabled to false in the config JSON. The hook still loads but exits early. Batch transcoding remains available via the Tools menu.
 - My videos still don’t play. Start with H.264, ensure yuv420p and CFR, and review [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 

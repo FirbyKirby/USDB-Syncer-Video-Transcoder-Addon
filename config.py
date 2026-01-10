@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal, Optional
 
+from usdb_syncer.utils import AppPaths
+
 _logger = logging.getLogger(__name__)
 
 TargetCodec = Literal["h264", "vp8", "hevc", "vp9", "av1"]
@@ -103,8 +105,8 @@ class TranscoderConfig:
 
 
 def get_config_path() -> Path:
-    """Return path to config file in addon directory."""
-    return Path(__file__).parent / "config.json"
+    """Return path to config file in USDB Syncer data directory."""
+    return AppPaths.data / "video_transcoder_config.json"
 
 
 def load_config() -> TranscoderConfig:
@@ -129,6 +131,7 @@ def load_config() -> TranscoderConfig:
 def save_config(cfg: TranscoderConfig) -> None:
     """Save configuration to JSON file."""
     config_path = get_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
     with config_path.open("w", encoding="utf-8") as f:
         json.dump(asdict(cfg), f, indent=2)
 
