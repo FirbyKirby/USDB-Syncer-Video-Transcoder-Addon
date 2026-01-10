@@ -23,6 +23,8 @@ def execute_ffmpeg(cmd: list[str], timeout: int) -> tuple[bool, str]:
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
                 env=env
             )

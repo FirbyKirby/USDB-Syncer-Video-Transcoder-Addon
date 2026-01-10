@@ -41,7 +41,7 @@ Non-goals
 | SyncMeta + song text update | [`sync_meta_updater.py`](../sync_meta_updater.py) | Preserve resource ID, update filename + mtime, update or insert `#VIDEO:` |
 | Abort + progress parsing | [`utils.py`](../utils.py) | Abort signal aggregation, ffmpeg progress parsing helpers |
 | Batch workflow (GUI) | [`batch_orchestrator.py`](../batch_orchestrator.py), [`batch_worker.py`](../batch_worker.py) | Scan, selection UI, worker thread, progress/abort, results |
-| Rollback (batch) | [`rollback.py`](../rollback.py) | Pre-transcode temp backups, manifest, restore-on-abort |
+| Rollback (batch) | [`rollback.py`](../rollback.py), [`rollback_backup_worker.py`](../rollback_backup_worker.py), [`rollback_backup_progress_dialog.py`](../rollback_backup_progress_dialog.py) | Pre-transcode temp backups (non-blocking creation), manifest, restore-on-abort |
 | Persistent backup management (GUI) | [`backup_manager.py`](../backup_manager.py) plus dialogs | Discover, delete, restore persistent backups |
 
 ## Configuration model
@@ -286,6 +286,7 @@ There is also a non-GUI batch helper module, [`batch.py`](../batch.py), which ex
 
 ### Phase 3: Execute
 
+- If rollback protection is enabled, the orchestrator first creates pre-transcode rollback backups via [`BatchTranscodeOrchestrator._create_rollback_backups()`](../batch_orchestrator.py:371). Backup copies are created on a background thread (see [`RollbackBackupWorker.run()`](../rollback_backup_worker.py:41)) while a modal progress dialog is shown (see [`RollbackBackupProgressDialog`](../rollback_backup_progress_dialog.py:26)). The user can cancel this phase, which aborts the batch before transcoding begins.
 - Work is performed on a `QThread` in [`BatchWorker.run()`](../batch_worker.py:108).
 - For each selected candidate, the worker calls the same core engine [`transcoder.process_video()`](../transcoder.py:41) and forwards progress updates to the UI.
 
@@ -305,7 +306,9 @@ Rollback is optional and only applies to batch operations.
 
 Design
 
-- Before any transcoding starts, the orchestrator creates per-video copies of the original videos into a unique temp directory via [`RollbackManager.enable_rollback()`](../rollback.py:67).
+- Before any transcoding starts, the orchestrator enables rollback (creates a unique temp directory) via [`RollbackManager.enable_rollback()`](../rollback.py:67), then creates per-video copies of the original videos on a background thread via [`RollbackBackupWorker.run()`](../rollback_backup_worker.py:41) while showing [`RollbackBackupProgressDialog`](../rollback_backup_progress_dialog.py:26). This keeps the UI responsive during large backup batches.
+- Users can cancel backup creation (dialog emits [`RollbackBackupProgressDialog.abort_requested`](../rollback_backup_progress_dialog.py:30) which triggers [`RollbackBackupWorker.abort()`](../rollback_backup_worker.py:37)), which aborts the batch before any transcoding begins.
+- If rollback backup creation fails, the orchestrator prompts whether to continue the batch (potentially without rollback protection) (see [`BatchTranscodeOrchestrator._on_backup_error()`](../batch_orchestrator.py:422)).
 - After each successful transcode, it records an entry in the rollback manifest via [`RollbackManager.record_transcode()`](../rollback.py:101).
 - On user abort, the orchestrator offers rollback and performs restore operations via [`RollbackManager.rollback_all()`](../rollback.py:129).
 

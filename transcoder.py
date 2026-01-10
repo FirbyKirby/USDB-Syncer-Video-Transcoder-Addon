@@ -319,6 +319,8 @@ def _execute_ffmpeg(
             cmd,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             env=env,
             bufsize=1,
             universal_newlines=True,

@@ -23,6 +23,8 @@ from .batch_progress_dialog import BatchProgressDialog
 from .batch_results_dialog import BatchResultsDialog
 from .batch_worker import BatchWorker
 from .rollback import RollbackManager
+from .rollback_backup_progress_dialog import RollbackBackupProgressDialog
+from .rollback_backup_worker import RollbackBackupWorker
 from .video_analyzer import analyze_video, needs_transcoding
 
 if TYPE_CHECKING:
@@ -166,6 +168,9 @@ class BatchTranscodeOrchestrator:
         self._abort_flag = False
         self._worker: Optional[BatchWorker] = None
         self._progress_dialog: Optional[BatchProgressDialog] = None
+        self._backup_worker: Optional[RollbackBackupWorker] = None
+        self._backup_dialog: Optional[RollbackBackupProgressDialog] = None
+        self._backup_success: bool = False
         
     def start_batch_workflow(self) -> None:
         """Entry point: start the entire batch transcode workflow."""
@@ -318,40 +323,12 @@ class BatchTranscodeOrchestrator:
             
         # Initialize rollback manager if enabled
         if self.summary.rollback_enabled:
-            self.rollback_manager = RollbackManager(self.cfg)
-            self._rollback_dir = self.rollback_manager.enable_rollback()
-            
-            # Record which videos already have user backups
-            self._existing_user_backups.clear()
-            for candidate in selected_candidates:
-                user_backup_path = candidate.video_path.with_name(
-                    f"{candidate.video_path.stem}{self.cfg.general.backup_suffix}{candidate.video_path.suffix}"
-                )
-                if user_backup_path.exists():
-                    self._existing_user_backups[candidate.song_id] = user_backup_path
-            
-            # Create pre-transcode backups in rollback temp directory
-            _logger.info("Creating pre-transcode rollback backups...")
-            for candidate in selected_candidates:
-                rollback_backup_path = self.rollback_manager.get_rollback_backup_path(
-                    candidate.song_id, 
-                    candidate.video_path
-                )
-                try:
-                    shutil.copy2(str(candidate.video_path), str(rollback_backup_path))
-                    _logger.debug(f"Created rollback backup: {rollback_backup_path}")
-                except Exception as e:
-                    _logger.error(f"Failed to create rollback backup for {candidate.song_title}: {e}")
-                    # Ask user if they want to continue without rollback for this video
-                    reply = QtWidgets.QMessageBox.critical(
-                        self.parent,
-                        "Rollback Backup Failed",
-                        f"Failed to create rollback backup for {candidate.song_title}:\n{e}\n\nContinue batch without rollback protection?",
-                        QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
-                        QtWidgets.QMessageBox.StandardButton.No
-                    )
-                    if reply == QtWidgets.QMessageBox.StandardButton.No:
-                        return
+            if not self._create_rollback_backups():
+                # User aborted or critical error during backup creation
+                # Clean up the rollback temp directory
+                if self.rollback_manager:
+                    self.rollback_manager.cleanup_rollback_data()
+                return
         
         # Create and show progress dialog
         self._progress_dialog = BatchProgressDialog(self.parent, len(selected_candidates))
@@ -391,6 +368,87 @@ class BatchTranscodeOrchestrator:
             # THEN clean up rollback data
             self.rollback_manager.cleanup_rollback_data()
     
+    def _create_rollback_backups(self) -> bool:
+        """Create pre-transcode backups in rollback temp directory (non-blocking)."""
+        if not self.summary:
+            return False
+            
+        selected_candidates = [c for c in self.candidates if c.selected]
+        self.rollback_manager = RollbackManager(self.cfg)
+        self._rollback_dir = self.rollback_manager.enable_rollback()
+        
+        # Record which videos already have user backups
+        self._existing_user_backups.clear()
+        for candidate in selected_candidates:
+            user_backup_path = candidate.video_path.with_name(
+                f"{candidate.video_path.stem}{self.cfg.general.backup_suffix}{candidate.video_path.suffix}"
+            )
+            if user_backup_path.exists():
+                self._existing_user_backups[candidate.song_id] = user_backup_path
+        
+        _logger.info("Creating pre-transcode rollback backups...")
+        
+        # Create and show progress dialog
+        self._backup_dialog = RollbackBackupProgressDialog(self.parent, len(selected_candidates))
+        self._backup_worker = RollbackBackupWorker(selected_candidates, self.rollback_manager)
+        
+        # Connect signals
+        self._backup_worker.progress.connect(self._backup_dialog.update_progress)
+        self._backup_worker.finished.connect(self._on_backup_finished)
+        self._backup_worker.error.connect(self._on_backup_error)
+        self._backup_worker.aborted.connect(self._on_backup_aborted)
+        self._backup_dialog.abort_requested.connect(self._backup_worker.abort)
+        
+        # Reset success flag
+        self._backup_success = False
+        
+        # Start worker
+        self._backup_worker.start()
+        
+        # Show dialog (modal)
+        self._backup_dialog.exec()
+        
+        # Wait for worker to finish
+        self._backup_worker.wait()
+        
+        return self._backup_success
+
+    def _on_backup_finished(self) -> None:
+        """Called when backup worker finishes successfully."""
+        self._backup_success = True
+        if self._backup_dialog:
+            self._backup_dialog.accept()
+
+    def _on_backup_error(self, filename: str, error_msg: str) -> None:
+        """Called when backup worker encounters an error."""
+        _logger.error(f"Rollback backup error for {filename}: {error_msg}")
+        
+        # Ask user if they want to continue without rollback protection
+        reply = QtWidgets.QMessageBox.critical(
+            self.parent,
+            "Rollback Backup Failed",
+            f"Failed to create rollback backup for {filename}:\n{error_msg}\n\nContinue batch without rollback protection?",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.No
+        )
+        
+        if reply == QtWidgets.QMessageBox.StandardButton.Yes:
+            # Continue without rollback protection for the rest?
+            # Actually, the worker already stopped. We'll just accept and continue the batch.
+            self._backup_success = True
+            if self._backup_dialog:
+                self._backup_dialog.accept()
+        else:
+            self._backup_success = False
+            if self._backup_dialog:
+                self._backup_dialog.reject()
+
+    def _on_backup_aborted(self) -> None:
+        """Called when backup worker is aborted."""
+        self._backup_success = False
+        if self._backup_dialog:
+            self._backup_dialog.reject()
+
     def _apply_backup_preservation_rule(self) -> None:
         """Apply backup preservation rule after successful batch.
         
