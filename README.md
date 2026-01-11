@@ -1,6 +1,6 @@
 # Video Transcoder Addon
 
-Automatically converts downloaded videos to various formats. After each song download, the addon analyzes the video and, if needed, transcodes it to your target codec using your configuration settings (e.g., H.264 profile, pixel format).
+Automatically converts downloaded videos in [USDB Syncer](https://github.com/bohning/usdb_syncer) to various formats. After each song download, the addon analyzes the video and, if needed, transcodes it to your target codec using your configuration settings (e.g., H.264 profile, pixel format).
 
 Tip: Transcoding runs automatically. No manual steps needed after installation.
 
