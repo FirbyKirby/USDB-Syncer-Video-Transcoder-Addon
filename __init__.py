@@ -44,42 +44,48 @@ def on_download_finished(song: UsdbSong) -> None:
         # Load configuration
         cfg = config.load_config()
 
-        if not cfg.auto_transcode_enabled:
-            slog.debug("Automatic video transcoding disabled")
-            return
-
         # Check FFMPEG availability
         if not usdb_utils.ffmpeg_is_available():
-            slog.error("FFMPEG not available - skipping video transcode")
+            slog.error("FFMPEG not available - skipping media transcode")
             return
 
-        # Get video path
-        if not song.sync_meta:
-            slog.debug("No sync_meta - skipping video transcode")
-            return
+        # 1. Process Video
+        if cfg.auto_transcode_enabled:
+            # Get video path
+            if song.sync_meta:
+                video_path = song.sync_meta.path.parent / song.sync_meta.video.file.fname if song.sync_meta.video and song.sync_meta.video.file and song.sync_meta.video.file.fname else None
+                if video_path and video_path.exists():
+                    # Analyze and potentially transcode video
+                    transcoder.process_video(song, video_path, cfg, slog)
+                else:
+                    slog.debug("No video file found - skipping video transcode")
+            else:
+                slog.debug("No sync_meta - skipping video transcode")
+        else:
+            slog.debug("Automatic video transcoding disabled")
 
-        video_path = song.sync_meta.path.parent / song.sync_meta.video.file.fname if song.sync_meta.video and song.sync_meta.video.file and song.sync_meta.video.file.fname else None
-        if not video_path or not video_path.exists():
-            slog.debug("No video file found - skipping transcode")
-            return
-
-        # Analyze and potentially transcode video
-        transcoder.process_video(song, video_path, cfg, slog)
-
-        # Analyze and potentially transcode standalone audio (if present)
-        audio_path = (
-            song.sync_meta.path.parent / song.sync_meta.audio.file.fname
-            if getattr(song.sync_meta, "audio", None)
-            and song.sync_meta.audio
-            and song.sync_meta.audio.file
-            and song.sync_meta.audio.file.fname
-            else None
-        )
-        if cfg.audio.audio_transcode_enabled and audio_path and audio_path.exists():
-            transcoder.process_audio(song, audio_path, cfg, slog)
+        # 2. Process Audio
+        if cfg.audio.audio_transcode_enabled:
+            # Get audio path
+            audio_path = (
+                song.sync_meta.path.parent / song.sync_meta.audio.file.fname
+                if song.sync_meta
+                and getattr(song.sync_meta, "audio", None)
+                and song.sync_meta.audio
+                and song.sync_meta.audio.file
+                and song.sync_meta.audio.file.fname
+                else None
+            )
+            if audio_path and audio_path.exists():
+                # Analyze and potentially transcode standalone audio
+                transcoder.process_audio(song, audio_path, cfg, slog)
+            else:
+                slog.debug("No audio file found - skipping audio transcode")
+        else:
+            slog.debug("Automatic audio transcoding disabled")
 
     except Exception as e:
-        slog.error(f"Video transcode failed: {type(e).__name__}: {e}")
+        slog.error(f"Media transcode failed: {type(e).__name__}: {e}")
         _logger.debug(None, exc_info=True)
 
 
@@ -131,9 +137,9 @@ def _register_gui_hooks() -> None:
             orchestrator.start_workflow()
 
         # Ui_MainWindow provides menu_tools
-        _settings_action = main_window.menu_tools.addAction("Transcoder Settings", open_settings)
+        _settings_action = main_window.menu_tools.addAction("Media Transcoder Settings", open_settings)
         _settings_action.setIcon(icons.Icon.VIDEO.icon())
-        _settings_action.setToolTip("Configure video transcoding settings and hardware acceleration.")
+        _settings_action.setToolTip("Configure media transcoding settings for video and audio files.")
         
         _batch_action = main_window.menu_tools.addAction("Batch Media Transcode", start_batch_transcode)
         _batch_action.setIcon(icons.Icon.FFMPEG.icon())

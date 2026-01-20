@@ -79,7 +79,7 @@ class AudioConfig:
 
     # Enable/disable automatic audio processing after download.
     # Kept in the audio section so video and audio can be toggled independently.
-    audio_transcode_enabled: bool = True
+    audio_transcode_enabled: bool = False
 
     # Force re-transcode audio even when input codec/container already matches.
     # This is intentionally separate from the video force flag for independent control.
@@ -101,6 +101,11 @@ class AudioConfig:
     audio_normalization_true_peak: float = -2.0
     audio_normalization_lra: float = 11.0
     audio_normalization_method: AudioNormalizationMethod = "loudnorm"
+    audio_normalization_use_usdb_defaults: bool = True
+
+    def get_usdb_target_loudness(self) -> float:
+        """Return USDB Syncer default target loudness for the current codec."""
+        return -23.0 if self.audio_codec == "opus" else -18.0
 
 
 @dataclass
@@ -136,7 +141,7 @@ class TranscoderConfig:
     # NOTE: This addon is still pre-release; keep the schema version stable.
     # New fields are added with safe defaults and unknown fields are ignored.
     version: int = 2
-    auto_transcode_enabled: bool = True
+    auto_transcode_enabled: bool = False
     target_codec: TargetCodec = "h264"
     h264: H264Config = field(default_factory=H264Config)
     vp8: VP8Config = field(default_factory=VP8Config)
@@ -231,7 +236,7 @@ def _parse_config(data: dict) -> TranscoderConfig:
 
     return TranscoderConfig(
         version=data.get("version", 2),
-        auto_transcode_enabled=data.get("auto_transcode_enabled", True),
+        auto_transcode_enabled=data.get("auto_transcode_enabled", False),
         target_codec=data.get("target_codec", "h264"),
         h264=H264Config(**get_clean_dict(H264Config, data.get("h264", {}))),
         vp8=VP8Config(**get_clean_dict(VP8Config, data.get("vp8", {}))),

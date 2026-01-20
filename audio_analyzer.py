@@ -151,6 +151,82 @@ def _parse_ffprobe_output(data: dict, path: Path) -> Optional[AudioInfo]:
     )
 
 
+def format_audio_info(info: AudioInfo, minimal: bool = False, reasons: list[str] | None = None) -> str:
+    """Format audio info into a detailed string for logging.
+
+    If minimal is True, only properties mentioned in reasons are included.
+    """
+    if not minimal:
+        log_parts = [
+            f"codec={info.codec_name}",
+            f"bitrate={info.bitrate_kbps}kbps" if info.bitrate_kbps else "bitrate=unknown",
+            f"channels={info.channels}",
+            f"sample_rate={info.sample_rate_hz}Hz",
+            f"duration={info.duration_seconds:.1f}s",
+            f"container={info.container}",
+            f"has_video={info.has_video}",
+        ]
+        return ", ".join(log_parts)
+
+    # Minimal format based on reasons
+    if not reasons:
+        return f"codec={info.codec_name}"
+
+    log_parts = []
+    reason_str = " ".join(reasons).lower()
+
+    if "codec" in reason_str:
+        log_parts.append(f"codec={info.codec_name}")
+    if "bitrate" in reason_str:
+        log_parts.append(f"bitrate={info.bitrate_kbps}kbps" if info.bitrate_kbps else "bitrate=unknown")
+    if "channels" in reason_str:
+        log_parts.append(f"channels={info.channels}")
+    if "sample rate" in reason_str:
+        log_parts.append(f"sample_rate={info.sample_rate_hz}Hz")
+    if "container" in reason_str:
+        log_parts.append(f"container={info.container}")
+    if "video" in reason_str:
+        log_parts.append(f"has_video={info.has_video}")
+
+    # Fallback if nothing matched but we have reasons
+    if not log_parts:
+        return f"codec={info.codec_name}"
+
+    return ", ".join(log_parts)
+
+
+def needs_audio_transcoding(info: AudioInfo, cfg: TranscoderConfig) -> tuple[bool, list[str]]:
+    """Determine if audio needs transcoding for target codec and settings.
+
+    Returns (needs_transcode, reasons).
+    """
+    from .codecs import get_audio_codec_handler
+    reasons: list[str] = []
+    target_codec = cfg.audio.audio_codec
+    handler = get_audio_codec_handler(target_codec)
+
+    if not handler:
+        return False, []
+
+    # 1. Check codec match
+    if info.codec_name.lower() != target_codec.lower():
+        reasons.append(f"codec {info.codec_name} != {target_codec}")
+
+    # 2. Check container compatibility
+    if not handler.is_container_compatible(Path(f"dummy.{info.container}")):
+        reasons.append(f"container {info.container} incompatible with {target_codec}")
+
+    # 3. Check normalization
+    if cfg.audio.audio_normalization_enabled:
+        reasons.append("normalization requested")
+
+    # 4. Check force transcode
+    if getattr(cfg.audio, "force_transcode_audio", False):
+        reasons.append("force_transcode_audio enabled")
+
+    return bool(reasons), reasons
+
+
 def is_audio_only(info: AudioInfo) -> bool:
     """Return True if the media appears to be audio-only."""
     return info.has_audio and not info.has_video

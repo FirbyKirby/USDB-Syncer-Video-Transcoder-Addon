@@ -83,6 +83,24 @@ def process_audio(
             error_message="Failed to analyze audio stream (no audio stream or ffprobe error)",
         )
 
+    from .audio_analyzer import format_audio_info, needs_audio_transcoding
+    slog.debug(f"Audio analysis: {format_audio_info(audio_info)}")
+
+    # Check if transcoding needed
+    needs_transcode, reasons = needs_audio_transcoding(audio_info, cfg)
+    if not needs_transcode:
+        slog.info(f"Audio already in {cfg.audio.audio_codec} format - skipping transcode")
+        return TranscodeResult(
+            success=True,
+            output_path=media_path,
+            original_backed_up=False,
+            backup_path=None,
+            duration_seconds=time.time() - start_time,
+            error_message=None,
+        )
+
+    slog.info(f"Transcode needed: {', '.join(reasons)}")
+
     # Check disk space (same guard as video)
     if not _check_disk_space(media_path, cfg.general.min_free_space_mb):
         slog.error(f"Insufficient disk space for audio transcoding. Required: {cfg.general.min_free_space_mb} MB")
@@ -124,16 +142,6 @@ def process_audio(
         and codec_matches
     )
 
-    if force_audio and stream_copy:
-        # Defensive: this should not happen due to the condition above, but keep the logic explicit.
-        stream_copy = False
-
-    if force_audio and container_matches and codec_matches and not normalization_requested:
-        slog.info(
-            f"Audio already matches target ({audio_codec}/{handler.capabilities().container}), "
-            "but force_transcode_audio is enabled - proceeding"
-        )
-
     # Build command
     try:
         cmd = handler.build_encode_command(
@@ -166,6 +174,11 @@ def process_audio(
     slog.debug(f"FFMPEG command (audio): {' '.join(cmd)}")
 
     # Execute transcode
+    slog.info(
+        f"Transcoding audio ({audio_info.codec_name}, "
+        f"{audio_info.bitrate_kbps or '?'}kbps, "
+        f"{audio_info.duration_seconds:.1f}s) to {audio_codec}..."
+    )
     try:
         success, aborted = _execute_ffmpeg(
             cmd,
