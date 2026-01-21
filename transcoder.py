@@ -86,9 +86,55 @@ def process_audio(
     from .audio_analyzer import format_audio_info, needs_audio_transcoding
     slog.debug(f"Audio analysis: {format_audio_info(audio_info)}")
 
-    # Check if transcoding needed
+    # Check if transcoding needed (codec/container/force)
     needs_transcode, reasons = needs_audio_transcoding(audio_info, cfg)
-    if not needs_transcode:
+
+    # Check normalization requirements
+    from .audio_analyzer import has_replaygain_tags
+    from .codecs import get_audio_codec_handler
+
+    target_codec = cfg.audio.audio_codec
+    handler = get_audio_codec_handler(target_codec)
+    codec_matches = audio_info.codec_name.lower() == target_codec.lower()
+    container_matches = handler.is_container_compatible(media_path) if handler else False
+    format_matches = codec_matches and container_matches
+
+    normalization_needed = False
+    if cfg.audio.audio_normalization_enabled:
+        if cfg.audio.audio_normalization_method == "loudnorm":
+            if format_matches and not getattr(cfg.audio, "force_transcode_audio", False):
+                slog.info(f"Audio format matches target and R128 normalization enabled - assuming file is already normalized, skipping transcode. To force re-normalization, enable 'Force Audio Transcode' in settings.")
+                return TranscodeResult(
+                    success=True,
+                    output_path=media_path,
+                    original_backed_up=False,
+                    backup_path=None,
+                    duration_seconds=time.time() - start_time,
+                    error_message=None,
+                )
+            else:
+                normalization_needed = True
+                reasons.append("normalization requested (loudnorm)")
+        elif cfg.audio.audio_normalization_method == "replaygain":
+            if format_matches and not getattr(cfg.audio, "force_transcode_audio", False):
+                if has_replaygain_tags(media_path):
+                    slog.info(f"Audio format matches target and ReplayGain tags detected - skipping transcode. To force re-normalization, enable 'Force Audio Transcode' in settings.")
+                    return TranscodeResult(
+                        success=True,
+                        output_path=media_path,
+                        original_backed_up=False,
+                        backup_path=None,
+                        duration_seconds=time.time() - start_time,
+                        error_message=None,
+                    )
+                else:
+                    normalization_needed = True
+                    reasons.append("ReplayGain tags missing")
+            else:
+                normalization_needed = True
+                reasons.append("normalization requested (replaygain)")
+
+    if not needs_transcode and not normalization_needed:
         slog.info(f"Audio already in {cfg.audio.audio_codec} format - skipping transcode")
         return TranscodeResult(
             success=True,
@@ -131,13 +177,12 @@ def process_audio(
     temp_output_path = media_path.with_suffix(f".transcoding{new_ext}")
 
     # Decide stream copy vs re-encode
-    normalization_requested = bool(cfg.audio.audio_normalization_enabled)
     container_matches = handler.is_container_compatible(media_path)
     codec_matches = (audio_info.codec_name.lower() == audio_codec.lower())
     force_audio = bool(getattr(cfg.audio, "force_transcode_audio", False))
     stream_copy = (
         not force_audio
-        and not normalization_requested
+        and not normalization_needed
         and container_matches
         and codec_matches
     )
@@ -162,7 +207,7 @@ def process_audio(
 
     # Apply normalization filters (Stage 3)
     # IMPORTANT: must occur before encoding; stream-copy path skips normalization.
-    if normalization_requested:
+    if normalization_needed:
         cmd = maybe_apply_audio_normalization(
             base_cmd=cmd,
             input_path=media_path,
@@ -560,7 +605,7 @@ def _execute_ffmpeg(
     Returns: (success, aborted)
     """
     start_time = time.time()
-    last_log_time = start_time
+    last_logged_percent = -10.0
 
     try:
         flags = 0
@@ -569,6 +614,7 @@ def _execute_ffmpeg(
 
         with LinuxEnvCleaner() as env, subprocess.Popen(
             cmd,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
@@ -622,8 +668,7 @@ def _execute_ffmpeg(
                         current_seconds = time_to_seconds(current_time_str)
                         percent = (current_seconds / duration * 100) if duration > 0 else 0
 
-                        now = time.time()
-                        if now - last_log_time >= 5:
+                        if int(percent // 10) > int(last_logged_percent // 10):
                             fps = progress.get("fps", "?")
                             speed = progress.get("speed", "?")
                             slog.info(
@@ -631,7 +676,7 @@ def _execute_ffmpeg(
                                 f"({current_time_str} / {format_seconds(duration)}) "
                                 f"[fps={fps}, speed={speed}]"
                             )
-                            last_log_time = now
+                            last_logged_percent = percent
 
                         if progress_callback:
                             fps_val = 0.0

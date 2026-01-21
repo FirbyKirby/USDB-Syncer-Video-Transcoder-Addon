@@ -16,6 +16,7 @@ AudioCodec = Literal["mp3", "vorbis", "aac", "opus"]
 H264Profile = Literal["baseline", "main", "high"]
 HEVCProfile = Literal["main", "main10"]
 AudioNormalizationMethod = Literal["loudnorm", "replaygain"]
+VerificationTolerancePreset = Literal["strict", "balanced", "relaxed"]
 
 
 @dataclass
@@ -109,6 +110,46 @@ class AudioConfig:
 
 
 @dataclass
+class VerificationTolerance:
+    """Tolerances for loudness verification."""
+
+    i_tolerance: float  # LUFS tolerance for integrated loudness
+    tp_tolerance: float  # dB tolerance for true peak (allowable overshoot)
+    lra_tolerance: float  # LU tolerance for loudness range
+
+
+@dataclass
+class VerificationConfig:
+    """Configuration for loudness verification."""
+
+    enabled: bool = True
+    tolerance_preset: VerificationTolerancePreset = "balanced"
+    custom_i_tolerance: Optional[float] = None
+    custom_tp_tolerance: Optional[float] = None
+    custom_lra_tolerance: Optional[float] = None
+
+    def get_active_tolerances(self) -> VerificationTolerance:
+        """Return appropriate tolerances based on preset or custom values."""
+        if (
+            self.custom_i_tolerance is not None
+            and self.custom_tp_tolerance is not None
+            and self.custom_lra_tolerance is not None
+        ):
+            return VerificationTolerance(
+                i_tolerance=self.custom_i_tolerance,
+                tp_tolerance=self.custom_tp_tolerance,
+                lra_tolerance=self.custom_lra_tolerance,
+            )
+        # Use preset
+        presets = {
+            "strict": VerificationTolerance(i_tolerance=1.0, tp_tolerance=0.3, lra_tolerance=2.0),
+            "balanced": VerificationTolerance(i_tolerance=1.5, tp_tolerance=0.5, lra_tolerance=3.0),
+            "relaxed": VerificationTolerance(i_tolerance=2.0, tp_tolerance=0.8, lra_tolerance=4.0),
+        }
+        return presets[self.tolerance_preset]
+
+
+@dataclass
 class GeneralConfig:
     """General transcoding settings."""
     hardware_encoding: bool = True
@@ -151,6 +192,7 @@ class TranscoderConfig:
     audio: AudioConfig = field(default_factory=AudioConfig)
     general: GeneralConfig = field(default_factory=GeneralConfig)
     usdb_integration: UsdbIntegrationConfig = field(default_factory=UsdbIntegrationConfig)
+    verification: VerificationConfig = field(default_factory=VerificationConfig)
 
 
 def get_config_path() -> Path:

@@ -201,12 +201,20 @@ class ScanWorker(QtCore.QThread):
 
                     container_matches = handler.is_container_compatible(media_path)
                     codec_matches = (info.codec_name.lower() == self.cfg.audio.audio_codec.lower())
-                    normalization_requested = bool(self.cfg.audio.audio_normalization_enabled)
+                    format_matches = container_matches and codec_matches
+                    normalization_enabled = bool(self.cfg.audio.audio_normalization_enabled)
                     force_audio = bool(getattr(self.cfg.audio, "force_transcode_audio", False))
-                    needs_audio = force_audio or normalization_requested or (not container_matches) or (not codec_matches)
+
+                    # Include if force transcode, or format mismatch, or normalization needed
+                    needs_audio = force_audio or not format_matches
+                    if normalization_enabled and not force_audio:
+                        method = self.cfg.audio.audio_normalization_method
+                        if method == "replaygain" and format_matches:
+                            # For replaygain, include if format matches (to check tags during transcode)
+                            needs_audio = True
 
                     if needs_audio:
-                        if force_audio and container_matches and codec_matches and not normalization_requested:
+                        if force_audio and container_matches and codec_matches and not normalization_enabled:
                             _logger.debug(f"Including {media_path.name} (force audio transcode enabled)")
                         results.append((sync_meta.song_id, media_path, info, "audio"))
 

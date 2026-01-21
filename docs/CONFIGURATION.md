@@ -184,12 +184,17 @@ Audio quality controls are codec-specific. Only the relevant setting for your ch
 Normalization makes tracks play at a more consistent perceived loudness.
 
 - `audio_normalization_enabled` (boolean, default: false)
-  - When enabled, stream copy is disabled and audio is re-encoded.
+  - When enabled, audio transcoding may be skipped if the file is already normalized (see smart skipping below).
 
 - `audio_normalization_method` (string, default: `"loudnorm"`)
   - Allowed values: `"loudnorm"`, `"replaygain"`
-  - `loudnorm` uses a two-pass EBU R128 workflow (measure, then apply).
-  - `replaygain` writes ReplayGain tags when supported by the output container/player.
+  - `loudnorm` uses a two-pass EBU R128 workflow (measure, then apply). Files matching target format are assumed normalized.
+  - `replaygain` writes ReplayGain tags when supported. Files with existing tags are skipped.
+
+Smart skipping behavior
+- **R128 (loudnorm)**: Files that match the target codec/container are assumed to be already normalized and transcoding is skipped.
+- **ReplayGain**: Files that match the target codec/container are checked for existing ReplayGain tags. If tags are present, transcoding is skipped.
+- To force re-normalization, enable `force_transcode_audio`.
 
 - `audio_normalization_target` (number, default: -18.0)
   - Target integrated loudness in **LUFS**.

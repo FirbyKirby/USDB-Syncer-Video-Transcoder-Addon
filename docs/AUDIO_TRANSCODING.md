@@ -95,9 +95,18 @@ Normalization aims to make tracks play at a consistent perceived loudness.
 
 ### Key terms (user-friendly)
 
-- **LUFS**: “how loud it sounds” (more negative means quieter)
+- **LUFS**: "how loud it sounds" (more negative means quieter)
 - **EBU R128**: a standard way to measure/normalize loudness
 - **True Peak (dBTP)**: helps avoid clipping after normalization
+
+### Smart skipping behavior
+
+The addon intelligently skips transcoding when normalization is already applied:
+
+- **R128 (loudnorm)**: Files that match the target codec/container are assumed to be already normalized and transcoding is skipped.
+- **ReplayGain**: Files that match the target codec/container are checked for existing ReplayGain tags. If tags are present, transcoding is skipped.
+
+To force re-normalization of files that would otherwise be skipped, enable `force_transcode_audio` in settings.
 
 ### Methods
 
@@ -109,8 +118,9 @@ How it works
 
 - Pass 1 measures loudness for the file.
 - Pass 2 applies normalization using those measurements.
+- When format matches target: assumes file is already normalized, skips transcoding.
 
-Why you’d use it
+Why you'd use it
 
 - You want consistent loudness across different players (it rewrites the audio).
 
@@ -125,14 +135,16 @@ Recommended starting point
 How it works
 
 - Writes ReplayGain tags into the output when the container/player supports it.
+- When format matches target: checks for existing ReplayGain tags, skips transcoding if present.
 
-Why you’d use it
+Why you'd use it
 
 - You prefer tag-based adjustment (player-controlled) rather than rewriting samples.
 
 Important limitation
 
 - Support depends on your player and output format.
+- Tag detection checks standard ReplayGain fields (REPLAYGAIN_TRACK_GAIN, etc.) in format metadata or stream tags (for Ogg containers).
 
 ## Example configurations
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -38,8 +38,22 @@ class TranscoderSettingsDialog(QDialog):
     def __init__(self, parent: QMainWindow) -> None:
         super().__init__(parent)
         self.cfg = config.load_config()
+        self._did_initial_resize = False
         self._setup_ui()
         self._load_settings()
+
+    def showEvent(self, event) -> None:  # type: ignore[override]
+        """Run an initial resize after the dialog is actually shown.
+
+        QScrollArea-based dialogs often report an undersized sizeHint() until the
+        widget is polished and laid out on screen. Deferring to showEvent avoids
+        computing a too-small size (which would keep the dialog narrow).
+        """
+
+        super().showEvent(event)
+        if not self._did_initial_resize:
+            self._did_initial_resize = True
+            QTimer.singleShot(0, self._resize_dialog_to_fit_all_states)
 
     def _setup_ui(self) -> None:
         self.setWindowTitle("Media Transcoder Settings")
@@ -48,23 +62,44 @@ class TranscoderSettingsDialog(QDialog):
         self.setMinimumHeight(750)
         
         main_layout = QVBoxLayout(self)
+        self._main_layout = main_layout
 
         # Scrollable content area (dialog is dense once audio settings are added)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        # We want a stable layout without scrollbars; the dialog will be resized
+        # to fit the full content.
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         main_layout.addWidget(scroll)
+
+        self._scroll = scroll
 
         content = QWidget()
         scroll.setWidget(content)
         content_layout = QHBoxLayout(content)
 
-        # Three-column layout
-        col1 = QVBoxLayout()
-        col2 = QVBoxLayout()
-        col3 = QVBoxLayout()
-        content_layout.addLayout(col1)
-        content_layout.addLayout(col2)
-        content_layout.addLayout(col3)
+        self._scroll_content = content
+
+        # Three-column layout with fixed minimum widths to prevent shifting
+        col1_widget = QWidget()
+        col1_widget.setMinimumWidth(350)
+        col1 = QVBoxLayout(col1_widget)
+
+        col2_widget = QWidget()
+        col2_widget.setMinimumWidth(350)
+        col2 = QVBoxLayout(col2_widget)
+
+        col3_widget = QWidget()
+        col3_widget.setMinimumWidth(350)
+        col3 = QVBoxLayout(col3_widget)
+
+        content_layout.addWidget(col1_widget)
+        content_layout.addWidget(col2_widget)
+        content_layout.addWidget(col3_widget)
+
+        # Keep references so we can compute a safe "no-scroll" dialog size.
+        self._col_widgets = (col1_widget, col2_widget, col3_widget)
 
         # 1. General Settings (Column 1)
         gen_group = QGroupBox("General Settings")
@@ -328,12 +363,20 @@ class TranscoderSettingsDialog(QDialog):
         norm_group = QGroupBox("Audio Normalization")
         norm_layout = QFormLayout(norm_group)
 
+        # Keep a reference so we can lock the group height to the "largest" state
+        # (prevents slight vertical shifting when toggling target field visibility).
+        self._audio_norm_group = norm_group
+
         self.audio_normalization_enabled = QCheckBox("Enable audio normalization")
         self.audio_normalization_enabled.setToolTip(
             "<b>Enable Audio Normalization</b><br/>"
             "Adjust perceived loudness to a consistent level during transcoding.<br/>"
             "<br/>"
-            "<b>Note:</b> Normalization requires re-encoding (stream copy is disabled)."
+            "<b>Smart Skipping:</b><br/>"
+            "• <b>R128 (loudnorm):</b> Files matching target format are assumed normalized and skipped.<br/>"
+            "• <b>ReplayGain:</b> Files with existing tags are skipped; missing tags trigger transcoding.<br/>"
+            "<br/>"
+            "<b>Note:</b> Use 'Force Audio Transcode' to override skipping."
         )
         norm_layout.addRow(self.audio_normalization_enabled)
 
@@ -423,6 +466,8 @@ class TranscoderSettingsDialog(QDialog):
         btn_layout.addWidget(save_btn)
         btn_layout.addWidget(cancel_btn)
         main_layout.addLayout(btn_layout)
+
+        self._btn_layout = btn_layout
         
         # Connections
         self.target_codec.currentIndexChanged.connect(self.codec_stack.setCurrentIndex)
@@ -801,6 +846,90 @@ class TranscoderSettingsDialog(QDialog):
         # Also ensure labels in the form layout are greyed out if possible, 
         # but QFormLayout doesn't have a simple way to disable just the labels.
         # Setting the container enabled state usually handles the widgets.
+
+    def _resize_dialog_to_fit_all_states(self) -> None:
+        """Resize and set a minimum size so the dialog never needs scrollbars.
+
+        Qt layouts may reflow when widgets are shown/hidden. To avoid scrollbars
+        appearing after the user toggles options (e.g., backup suffix or manual
+        normalization targets), compute a size that fits the *largest* relevant
+        content state and set that as the dialog's minimum size.
+        """
+
+        # Save current visibility so we can restore it after probing.
+        current_visibility = {
+            "backup_suffix": self.backup_suffix.isVisible(),
+            "backup_suffix_label": self.backup_suffix_label.isVisible(),
+            "audio_norm_targets": self.audio_norm_targets_container.isVisible(),
+            "manual_res": self.manual_res.isVisible(),
+            "res_row_label": self.res_row_label.isVisible(),
+            "manual_fps": self.manual_fps.isVisible(),
+            "fps_row_label": self.fps_row_label.isVisible(),
+        }
+
+        # Force the "largest" layout state (show all conditional rows).
+        self.backup_suffix.setVisible(True)
+        self.backup_suffix_label.setVisible(True)
+        self.audio_norm_targets_container.setVisible(True)
+        self.manual_res.setVisible(True)
+        self.res_row_label.setVisible(True)
+        self.manual_fps.setVisible(True)
+        self.fps_row_label.setVisible(True)
+
+        # Make sure the layout is recalculated.
+        if self._scroll_content.layout() is not None:
+            self._scroll_content.layout().activate()
+        if self.layout() is not None:
+            self.layout().activate()
+
+        # Lock the Audio Normalization group box height to the maximum state.
+        # This avoids a subtle "jump" when target rows are shown/hidden.
+        self._audio_norm_group.setFixedHeight(self._audio_norm_group.sizeHint().height())
+
+        # Compute the content size while everything is visible.
+        self._scroll_content.adjustSize()
+        content_hint = self._scroll_content.sizeHint()
+
+        # Account for dialog margins, scroll frame, and the bottom button row.
+        main_margins = self._main_layout.contentsMargins()
+        main_spacing = self._main_layout.spacing()
+        btn_hint = self._btn_layout.sizeHint()
+        scroll_frame = self._scroll.frameWidth() * 2
+
+        # The dialog consists of: (margins) + (scroll area showing content) + (spacing) + (buttons) + (margins)
+        desired_w = content_hint.width() + main_margins.left() + main_margins.right() + scroll_frame
+        desired_h = (
+            content_hint.height()
+            + main_margins.top()
+            + main_margins.bottom()
+            + main_spacing
+            + btn_hint.height()
+            + scroll_frame
+        )
+
+        # Keep the existing minimums as a floor.
+        desired_w = max(desired_w, self.minimumWidth())
+        desired_h = max(desired_h, self.minimumHeight())
+
+        # Restore original visibility.
+        self.backup_suffix.setVisible(current_visibility["backup_suffix"])
+        self.backup_suffix_label.setVisible(current_visibility["backup_suffix_label"])
+        self.audio_norm_targets_container.setVisible(current_visibility["audio_norm_targets"])
+        self.manual_res.setVisible(current_visibility["manual_res"])
+        self.res_row_label.setVisible(current_visibility["res_row_label"])
+        self.manual_fps.setVisible(current_visibility["manual_fps"])
+        self.fps_row_label.setVisible(current_visibility["fps_row_label"])
+
+        # Re-activate layouts after restoring.
+        if self._scroll_content.layout() is not None:
+            self._scroll_content.layout().activate()
+        if self.layout() is not None:
+            self.layout().activate()
+
+        # Apply the computed size and lock it in as the minimum so the user
+        # can't shrink the window into a scrollbar-triggering size.
+        self.resize(desired_w, desired_h)
+        self.setMinimumSize(desired_w, desired_h)
 
     def accept(self) -> None:
         """Validate user inputs before closing."""

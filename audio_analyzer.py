@@ -19,6 +19,8 @@ from typing import Optional
 
 from usdb_syncer.utils import LinuxEnvCleaner
 
+from .config import TranscoderConfig
+
 
 _logger = logging.getLogger(__name__)
 
@@ -199,6 +201,8 @@ def needs_audio_transcoding(info: AudioInfo, cfg: TranscoderConfig) -> tuple[boo
     """Determine if audio needs transcoding for target codec and settings.
 
     Returns (needs_transcode, reasons).
+
+    Note: Normalization checks are handled separately in process_audio().
     """
     from .codecs import get_audio_codec_handler
     reasons: list[str] = []
@@ -216,11 +220,7 @@ def needs_audio_transcoding(info: AudioInfo, cfg: TranscoderConfig) -> tuple[boo
     if not handler.is_container_compatible(Path(f"dummy.{info.container}")):
         reasons.append(f"container {info.container} incompatible with {target_codec}")
 
-    # 3. Check normalization
-    if cfg.audio.audio_normalization_enabled:
-        reasons.append("normalization requested")
-
-    # 4. Check force transcode
+    # 3. Check force transcode
     if getattr(cfg.audio, "force_transcode_audio", False):
         reasons.append("force_transcode_audio enabled")
 
@@ -235,4 +235,84 @@ def is_audio_only(info: AudioInfo) -> bool:
 def is_video_with_audio(info: AudioInfo) -> bool:
     """Return True if the media contains both video and audio."""
     return info.has_audio and info.has_video
+
+
+def has_replaygain_tags(path: Path) -> bool:
+    """Check if audio file has ReplayGain tags using ffprobe.
+
+    Checks both format-level and stream-level tags, with container-specific logic:
+    - For Ogg containers: checks stream tags (Vorbis comments)
+    - For other containers: checks format tags
+
+    Looks for standard ReplayGain tags: track_gain, track_peak, album_gain, album_peak
+    (case-insensitive, with or without 'replaygain_' prefix).
+    """
+    cmd = [
+        "ffprobe",
+        "-v", "quiet",
+        "-print_format", "json",
+        "-show_format",
+        "-show_streams",
+        str(path),
+    ]
+
+    try:
+        _logger.debug(f"Checking ReplayGain tags: {' '.join(cmd)}")
+        with LinuxEnvCleaner() as env:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+                env=env,
+            )
+
+        if result.returncode != 0:
+            _logger.warning(f"ffprobe failed for ReplayGain check {path}: {result.stderr}")
+            return False
+
+        data = json.loads(result.stdout)
+
+        # Check format tags
+        format_tags = data.get("format", {}).get("tags", {})
+        if _has_replaygain_in_tags(format_tags):
+            return True
+
+        # For Ogg containers, also check stream tags (Vorbis comments)
+        container = path.suffix.lstrip(".").lower()
+        if container in ("ogg", "oga", "opus"):
+            streams = data.get("streams", [])
+            for stream in streams:
+                if stream.get("codec_type") == "audio":
+                    stream_tags = stream.get("tags", {})
+                    if _has_replaygain_in_tags(stream_tags):
+                        return True
+
+        return False
+
+    except subprocess.TimeoutExpired:
+        _logger.error(f"ffprobe timeout checking ReplayGain for {path}")
+        return False
+    except json.JSONDecodeError as e:
+        _logger.error(f"ffprobe output parse error checking ReplayGain: {e}")
+        return False
+    except Exception as e:
+        _logger.error(f"ffprobe error checking ReplayGain for {path}: {type(e).__name__}: {e}")
+        return False
+
+
+def _has_replaygain_in_tags(tags: dict) -> bool:
+    """Check if a tags dict contains any ReplayGain tags."""
+    replaygain_keys = {
+        # Standard ReplayGain tags
+        "REPLAYGAIN_TRACK_GAIN", "REPLAYGAIN_TRACK_PEAK",
+        "REPLAYGAIN_ALBUM_GAIN", "REPLAYGAIN_ALBUM_PEAK",
+        # Short forms (sometimes used)
+        "TRACK_GAIN", "TRACK_PEAK", "ALBUM_GAIN", "ALBUM_PEAK"
+    }
+
+    tag_keys = {k.upper() for k in tags.keys()}
+    return bool(replaygain_keys & tag_keys)
 
