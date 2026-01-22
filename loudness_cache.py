@@ -342,8 +342,17 @@ class LoudnessCache:
 
             # Get all valid song IDs from USDB Syncer
             valid_song_ids = set()
-            for song in UsdbSong.get_all():
-                valid_song_ids.add(song.song_id)
+            if hasattr(UsdbSong, "get_all"):
+                for song in UsdbSong.get_all():
+                    valid_song_ids.add(int(song.song_id))
+            elif hasattr(db, "all_song_ids"):
+                # USDB Syncer v0.18.0+: no UsdbSong.get_all(); enumerate ids via db.
+                valid_song_ids = {int(song_id) for song_id in db.all_song_ids()}
+            else:
+                _logger.warning(
+                    "prune_orphans: cannot enumerate songs (missing UsdbSong.get_all and db.all_song_ids); skipping pruning"
+                )
+                return False
 
             conn = self._ensure_connection()
             deleted_count = 0

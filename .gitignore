@@ -3,3 +3,4 @@ __pycache__/
 .env
 .kilocode/
 .DS_Store
+logs/
