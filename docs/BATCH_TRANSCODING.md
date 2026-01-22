@@ -15,7 +15,21 @@ Supported media types
 - **Video** referenced by SyncMeta video
 - **Standalone audio** referenced by SyncMeta audio (when present)
 
-Entry point: Tools → Batch Media Transcode. Internally this launches [BatchTranscodeOrchestrator.start_batch_workflow()](../batch_orchestrator.py:235).
+Entry point: Tools → Batch Media Transcode.
+
+This addon supports two batch workflows:
+
+- **Batch wizard** (recommended for verification and fine control)
+- **Legacy batch** (traditional scan → preview → transcode flow)
+
+Both workflows ultimately run the same underlying transcode pipeline and use the same progress and results dialogs.
+
+Entry points
+
+- Batch wizard: launched via [batch.run_batch_with_wizard()](../batch.py:86)
+- Legacy batch: launched via [batch.run_batch_transcode_legacy()](../batch.py:25) (internally uses [BatchTranscodeOrchestrator.start_batch_workflow()](../batch_orchestrator.py:235))
+
+If you primarily want to verify audio normalization and skip already-correct files, use the batch wizard.
 
 ## 2) Prerequisites
 
@@ -28,6 +42,137 @@ Warnings
 - Abort attempts graceful termination of the active FFmpeg process. Response time is usually quick but can be delayed if FFmpeg isn't producing output. The system will attempt SIGTERM then force-kill if needed. If rollback is enabled, you are prompted to restore processed videos
 
 ## 3) Step-by-Step Walkthrough
+
+### Batch Wizard Workflow
+
+The batch wizard is a guided, multi-step workflow designed for two common goals:
+
+- **Fast standardization** (change codec/limits and re-encode what does not match)
+- **Normalization verification** (measure loudness first, then transcode only what is out of tolerance)
+
+Compared to legacy batch, the wizard can optionally spend time up-front to verify loudness. That extra time can prevent unnecessary lossy re-encoding and may save time overall.
+
+Wizard steps (high level)
+
+```mermaid
+flowchart TD
+  A[Start batch] --> B[Goals]
+  B --> C[Rules]
+  C --> D[Preflight]
+  D --> E[Scan]
+  E --> F{Verification enabled}
+  F -->|No| G[Selection]
+  F -->|Yes| H[Verification]
+  H --> G
+  G --> I[Transcode]
+  I --> J[Results]
+```
+
+#### Step 1: Goals (what to process)
+
+Choose what you want to batch process:
+
+- Video, standalone audio, or both
+
+This step is where you decide the overall scope.
+
+#### Step 2: Rules (force options and verification options)
+
+Configure how the wizard should make decisions:
+
+- Force transcode options (video and/or audio)
+- **Normalization verification** options (for standalone audio)
+  - Enable verification
+  - Choose a tolerance preset (Strict / Balanced / Relaxed)
+
+Verification terminology
+
+- **Within tolerance**: loudness is close enough to your targets to skip normalization.
+- **Out of tolerance**: loudness differs enough that normalization/transcoding is recommended.
+
+For preset details and advanced custom tolerances, see [`docs/CONFIGURATION.md`](CONFIGURATION.md).
+
+#### Step 3: Preflight (estimates and confirmation)
+
+Preflight summarizes:
+
+- What will be scanned
+- Whether verification is enabled
+- Estimated work (where available)
+
+This is your last chance to back out before the wizard starts scanning.
+
+#### Step 4: Scan (fast metadata scan)
+
+The scan step is intentionally fast:
+
+- It uses ffprobe-level metadata to find items that do not match your targets (codec/container/limits)
+- It does **not** measure loudness
+
+This design keeps the initial scan responsive even on large libraries.
+
+#### Step 5 (optional): Verification (loudness measurement with progress)
+
+If verification is enabled, the wizard runs a loudness measurement pass for standalone audio.
+
+What to expect
+
+- Measurement uses FFmpeg `loudnorm` in analysis mode.
+- It typically runs at **about realtime**, so large libraries can take hours.
+- Results are cached so re-running the wizard is faster when files have not changed.
+
+See also: [`docs/AUDIO_TRANSCODING.md`](AUDIO_TRANSCODING.md) for how verification works and why it helps.
+
+#### Step 6: Selection (tree view with verification results)
+
+Selection groups items by song and shows each song’s media (video/audio) under it.
+
+If verification ran, the selection UI surfaces verification results so you can make an informed choice:
+
+- Audio that is **within tolerance** can be preselected to *skip* (depending on your chosen goal/rules)
+- Audio that is **out of tolerance** is typically preselected for processing
+
+The exact defaults may vary based on your chosen goals and force flags, but the intent is consistent: verified-within-tolerance audio should not be re-encoded unless you explicitly request it.
+
+#### Step 7: Transcode (existing progress UI)
+
+Once you confirm selection, the wizard uses the existing transcode worker and progress dialog.
+
+- Worker: [BatchWorker](../batch_worker.py:26)
+- Progress UI: [batch_progress_dialog.py](../batch_progress_dialog.py:1)
+
+If the wizard already verified loudness, those cached results are reused during transcoding to avoid duplicate analysis.
+
+#### Step 8: Results
+
+Results are shown in the existing results dialog:
+
+- [batch_results_dialog.py](../batch_results_dialog.py:1)
+
+### When to use batch wizard vs legacy batch
+
+Use the batch wizard when:
+
+- You want **normalization verification** to avoid re-encoding already-correct audio
+- You want a guided, step-by-step workflow with Back/Next navigation
+- You are making a careful, high-impact change and want a clear selection stage
+
+Use legacy batch when:
+
+- You want the simplest, fastest batch experience
+- You do not need normalization verification
+- You already know you want to transcode all discovered candidates
+
+### Back navigation and cached results
+
+The wizard is designed to let you go Back without losing expensive work:
+
+- Scan results are kept in memory for the current wizard run.
+- Verification results are cached on disk, so repeating a verification run is much faster as long as files and settings have not changed.
+
+### Legacy Batch Walkthrough (traditional flow)
+
+The legacy batch flow is the original scan → preview → transcode workflow.
 
 1. Launching the batch transcode
 - Open Tools → Batch Media Transcode

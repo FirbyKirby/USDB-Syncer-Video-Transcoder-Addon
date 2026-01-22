@@ -442,7 +442,8 @@ class BatchTranscodeOrchestrator:
         self._worker = BatchWorker(
             self.candidates,
             self.cfg,
-            on_video_success=self._on_video_success
+            on_video_success=self._on_video_success,
+            wizard_state=None,  # Legacy batch flow doesn't use wizard
         )
         
         # Connect signals

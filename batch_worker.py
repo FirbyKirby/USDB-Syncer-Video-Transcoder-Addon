@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from usdb_syncer import SongId
 
     from .batch_orchestrator import BatchTranscodeCandidate
+    from .batch_wizard_state import BatchWizardState
     from .config import TranscoderConfig
 
 _logger = logging.getLogger(__name__)
@@ -88,12 +89,15 @@ class BatchWorker(QtCore.QThread):
         self,
         candidates: list[BatchTranscodeCandidate],
         cfg: TranscoderConfig,
-        on_video_success: Optional[Callable[[BatchTranscodeCandidate], None]] = None
+        on_video_success: Optional[Callable[[BatchTranscodeCandidate], None]] = None,
+        wizard_state: Optional[BatchWizardState] = None,
     ):
         super().__init__()
         self.candidates = candidates
-        self.cfg = cfg
+        # Apply wizard force flags if wizard state is provided (fixed: wizard force flags now respected)
+        self.cfg = self._apply_wizard_overrides(cfg, wizard_state)
         self.on_video_success = on_video_success
+        self.wizard_state = wizard_state
         self._abort_requested = False
         self._current_song_id: Optional[SongId] = None
 
@@ -150,6 +154,10 @@ class BatchWorker(QtCore.QThread):
 
                     # Perform the transcode (video or audio)
                     if getattr(candidate, "media_type", "video") == "audio":
+                        # When wizard ran analysis, results are cached and process_audio will reuse them
+                        if self.wizard_state and self.wizard_state.verify_normalization:
+                            _logger.info(f"Processing {candidate.video_path.name} (wizard analysis cache available)")
+                        
                         result = process_audio(
                             song=song,
                             media_path=candidate.video_path,
@@ -205,3 +213,38 @@ class BatchWorker(QtCore.QThread):
             self.batch_completed.emit()
         finally:
             BatchAbortRegistry.instance().clear_all()
+    
+    def _apply_wizard_overrides(self, cfg: TranscoderConfig, wizard_state: Optional[BatchWizardState]) -> TranscoderConfig:
+        """Apply wizard force flags to config for this batch run.
+        
+        This ensures wizard-selected force flags override config values for this batch.
+        Fixes critical issue where wizard force transcode selections were ignored.
+        
+        Args:
+            cfg: Base configuration
+            wizard_state: Wizard state with force flags (if used)
+            
+        Returns:
+            Modified config with wizard overrides applied
+        """
+        if wizard_state is None:
+            return cfg
+        
+        # Apply wizard force flags by creating modified config instances
+        from dataclasses import replace
+        
+        modified_cfg = cfg
+        
+        # Apply force audio transcode from wizard
+        if wizard_state.force_audio_transcode and not cfg.audio.force_transcode_audio:
+            _logger.info("Wizard: Applying force_audio_transcode override")
+            modified_audio = replace(cfg.audio, force_transcode_audio=True)
+            modified_cfg = replace(modified_cfg, audio=modified_audio)
+        
+        # Apply force video transcode from wizard
+        if wizard_state.force_video_transcode and not cfg.general.force_transcode_video:
+            _logger.info("Wizard: Applying force_video_transcode override")
+            modified_general = replace(cfg.general, force_transcode_video=True)
+            modified_cfg = replace(modified_cfg, general=modified_general)
+        
+        return modified_cfg

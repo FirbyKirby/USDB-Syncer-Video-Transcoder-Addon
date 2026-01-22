@@ -93,20 +93,91 @@ Recommended
 
 Normalization aims to make tracks play at a consistent perceived loudness.
 
+## Audio Normalization Verification
+
+Normalization verification checks whether a track is already normalized *well enough* to match your configured loudness targets, before spending time re-encoding it.
+
+Why this is useful
+
+- **Saves time**: already-normalized files can be skipped.
+- **Preserves quality**: skipping avoids lossy-to-lossy re-encoding when it is not needed.
+
+### How verification works
+
+When verification is enabled, the addon:
+
+1. Runs an FFmpeg loudness measurement pass using the `loudnorm` filter in analysis mode.
+2. Compares the measured loudness values against your configured targets using a tolerance preset.
+3. Classifies the file as:
+   - **Within tolerance**: close enough to the targets → the addon can skip normalization/transcoding.
+   - **Out of tolerance**: not close enough → the addon proceeds with normalization (and any required transcoding).
+
+Tolerance presets are designed to match perceptual thresholds (based on EBU R128 / common loudness guidance), so small differences that are rarely audible do not force unnecessary work.
+
+For details, including preset meanings and advanced custom tolerances, see [`docs/CONFIGURATION.md`](CONFIGURATION.md).
+
+### When verification runs
+
+Verification can happen in two places:
+
+1. **Automatic processing after download** (opt-in)
+   - If `verification.enabled` is enabled, newly downloaded standalone audio can be verified before normalization/transcoding.
+
+2. **Batch wizard verification** (opt-in per run)
+   - In the **batch wizard**, verification happens during the optional **Verification** step (labeled Analysis in the UI).
+   - This step can take a long time for large libraries, but it lets you avoid re-encoding audio that is already within tolerance.
+   - See [`docs/BATCH_TRANSCODING.md`](BATCH_TRANSCODING.md).
+
+### Performance trade-offs
+
+Verification is not free:
+
+- Loudness measurement requires decoding the entire file and typically runs at **about realtime**.
+- As a rough guide, expect **2–5 minutes per song** depending on track duration and your machine.
+
+The trade-off is that verification can save *much more* time than it costs if your library contains many files that already match the targets.
+
+### Caching (to avoid repeated verification)
+
+Verification results are cached automatically in a local **SQLite database**. This means:
+
+- The **first** time a file is verified, it is slow (full decode).
+- Later runs can reuse cached measurements if the file has not changed, making verification effectively instant.
+
+The cache is invalidated automatically when the file changes (for example, different size/modified time) or when you change targets/tolerances.
+
 ### Key terms (user-friendly)
 
-- **LUFS**: "how loud it sounds" (more negative means quieter)
+- **Loudness (LUFS)**: "how loud it sounds" (more negative means quieter)
 - **EBU R128**: a standard way to measure/normalize loudness
 - **True Peak (dBTP)**: helps avoid clipping after normalization
 
 ### Smart skipping behavior
 
-The addon intelligently skips transcoding when normalization is already applied:
+The addon intelligently skips transcoding when normalization is already applied.
 
 - **R128 (loudnorm)**: Files that match the target codec/container are assumed to be already normalized and transcoding is skipped.
 - **ReplayGain**: Files that match the target codec/container are checked for existing ReplayGain tags. If tags are present, transcoding is skipped.
 
+If you enable normalization verification (`verification.enabled`), the addon can make a more accurate decision for loudnorm by measuring loudness and checking whether the file is **within tolerance**.
+
 To force re-normalization of files that would otherwise be skipped, enable `force_transcode_audio` in settings.
+
+### Decision flow (simplified)
+
+```mermaid
+flowchart TD
+  A[Standalone audio downloaded or selected in batch] --> B{Audio transcoding enabled}
+  B -->|No| Z[Leave audio as-is]
+  B -->|Yes| C{Audio normalization enabled}
+  C -->|No| D[Transcode only if codec or container mismatches]
+  C -->|Yes| E{Verification enabled}
+  E -->|No| F[Normalize and transcode based on settings]
+  E -->|Yes| G[Measure loudness and compare to targets]
+  G --> H{Within tolerance}
+  H -->|Yes| I[Skip normalization and transcode]
+  H -->|No| J[Normalize and transcode]
+```
 
 ### Methods
 
@@ -193,4 +264,4 @@ Important limitation
 ## Troubleshooting quick links
 
 - Encoder missing (`libmp3lame`, `libvorbis`, `libopus`): [`docs/TROUBLESHOOTING.md`](TROUBLESHOOTING.md)
-- Loudnorm failures / invalid measurements: [`docs/TROUBLESHOOTING.md`](TROUBLESHOOTING.md)
+- Verification or loudnorm failures / invalid measurements: [`docs/TROUBLESHOOTING.md`](TROUBLESHOOTING.md)

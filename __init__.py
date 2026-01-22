@@ -156,4 +156,17 @@ def _register_gui_hooks() -> None:
 
 
 _register_gui_hooks()
+
+# Prune orphaned cache entries once per app launch (F6a recommendation)
+try:
+    from .loudness_cache import get_cache_path, LoudnessCache
+    cache_path = get_cache_path()
+    cache = LoudnessCache(cache_path)
+    success = cache.prune_orphans()
+    cache.close()
+    if success:
+        _logger.info("Cache pruning completed during addon initialization")
+except Exception as e:
+    _logger.warning(f"Cache pruning failed during addon initialization: {e}")
+
 _logger.info("Transcoder addon loaded")

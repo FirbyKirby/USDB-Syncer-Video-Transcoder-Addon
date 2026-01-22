@@ -12,6 +12,7 @@ import logging
 import math
 import re
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
     from usdb_syncer.logger import SongLogger
 
     from .config import TranscoderConfig
+    from .loudness_cache import LoudnessCache
 
 
 _logger = logging.getLogger(__name__)
@@ -137,6 +139,7 @@ def analyze_loudnorm_two_pass(
     targets: LoudnormTargets,
     timeout_seconds: int,
     slog: "SongLogger",
+    cache: Optional["LoudnessCache"] = None,
 ) -> LoudnormMeasurements:
     """Run loudnorm pass 1 analysis and return measurements for pass 2."""
 
@@ -173,6 +176,7 @@ def analyze_loudnorm_two_pass(
     )
     slog.debug(f"FFMPEG command (loudnorm pass 1): {' '.join(cmd)}")
 
+    start_time = time.time()
     with LinuxEnvCleaner() as env:
         result = subprocess.run(
             cmd,
@@ -183,6 +187,8 @@ def analyze_loudnorm_two_pass(
             timeout=timeout_seconds,
             env=env,
         )
+    end_time = time.time()
+    wall_seconds = end_time - start_time
 
     if result.returncode != 0:
         tail = (result.stderr or "").strip()[-1000:]
@@ -196,6 +202,13 @@ def analyze_loudnorm_two_pass(
         f"I={meas.measured_I} LUFS, TP={meas.measured_TP} dBTP, LRA={meas.measured_LRA} LU, "
         f"thresh={meas.measured_thresh} LUFS, offset={meas.offset}"
     )
+
+    # Record analysis performance if cache is available
+    if cache:
+        duration = obj.get("duration")
+        if duration and isinstance(duration, (int, float)) and duration > 5:
+            cache.record_analysis_performance(duration, wall_seconds)
+
     return meas
 
 
@@ -245,6 +258,8 @@ def maybe_apply_audio_normalization(
     cfg: "TranscoderConfig",
     slog: "SongLogger",
     stream_copy: bool,
+    precomputed_meas: Optional[LoudnormMeasurements] = None,
+    cache: Optional["LoudnessCache"] = None,
 ) -> list[str]:
     """Return an ffmpeg command with normalization filters injected when enabled.
 
@@ -269,14 +284,20 @@ def maybe_apply_audio_normalization(
                 lra_lu=float(cfg.audio.audio_normalization_lra),
             )
 
-            # Avoid spending the full transcode timeout on analysis; keep bounded.
-            analysis_timeout = min(int(cfg.general.timeout_seconds), 300)
-            meas = analyze_loudnorm_two_pass(
-                input_path=input_path,
-                targets=targets,
-                timeout_seconds=analysis_timeout,
-                slog=slog,
-            )
+            if precomputed_meas is not None:
+                # Use precomputed measurements from verification
+                meas = precomputed_meas
+                slog.info("Using precomputed loudnorm measurements from verification")
+            else:
+                # Avoid spending the full transcode timeout on analysis; keep bounded.
+                analysis_timeout = min(int(cfg.general.timeout_seconds), 300)
+                meas = analyze_loudnorm_two_pass(
+                    input_path=input_path,
+                    targets=targets,
+                    timeout_seconds=analysis_timeout,
+                    slog=slog,
+                    cache=cache,
+                )
             pass2_filter = build_loudnorm_pass2_filter(targets, meas)
             slog.info("Applying loudnorm normalization (pass 2)")
             return inject_audio_filter(base_cmd, pass2_filter)

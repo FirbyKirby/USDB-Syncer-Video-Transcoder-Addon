@@ -215,6 +215,81 @@ User-friendly terms
 - **EBU R128**: the standard that defines how loudness is measured/normalized.
 - **dBTP (true peak)**: peak measurement that better predicts clipping than simple sample peaks.
 
+### Normalization verification settings
+
+Normalization verification checks whether a file is already normalized *well enough* to match your configured loudness targets, before spending time re-encoding it.
+
+Benefits
+
+- Can **save time** by skipping work when audio is already within tolerance.
+- Can **preserve quality** by avoiding unnecessary lossy-to-lossy re-encodes.
+
+Trade-off
+
+- Verification requires decoding the whole file (typically **about realtime**), so it can add **2–5 minutes per song** depending on duration and hardware.
+
+#### Enable verification
+
+- `verification.enabled` (boolean, default: false)
+  - Enables normalization verification for standalone audio processing.
+  - When enabled, the addon can verify loudness and skip normalization/transcoding when the file is **within tolerance**.
+  - Verification uses FFmpeg `loudnorm` in analysis mode (pass-1 measurement) and compares the results to your targets.
+
+Note
+
+- Verification is also available in the **batch wizard** as an optional step. See [`docs/BATCH_TRANSCODING.md`](BATCH_TRANSCODING.md).
+- For a user-friendly explanation of verification behavior, see [`docs/AUDIO_TRANSCODING.md`](AUDIO_TRANSCODING.md).
+
+#### Tolerance presets (recommended)
+
+- `verification.tolerance_preset` (string, default: `"balanced"`)
+  - Allowed values: `"strict"`, `"balanced"`, `"relaxed"`
+  - This controls how close a file must be to your targets to be considered **within tolerance**.
+
+Preset meanings (plain language)
+
+- **Strict**: closest match to targets. Best when you want the tightest consistency.
+- **Balanced (default)**: recommended for most users. Small differences are rarely noticeable.
+- **Relaxed**: least picky. Skips more files, but may allow slightly larger differences.
+
+Technical mapping (for reference)
+
+- Strict: ±1.0 LU integrated, +0.3 dB true peak, ±2 LU loudness range
+- Balanced: ±1.5 LU integrated, +0.5 dB true peak, ±3 LU loudness range
+- Relaxed: ±2.0 LU integrated, +0.8 dB true peak, ±4 LU loudness range
+
+Most users should use presets. Only use custom tolerances if you know why you need them.
+
+#### Advanced: custom tolerances
+
+These settings override the selected preset when set. Leave them unset for preset behavior.
+
+- `verification.custom_i_tolerance` (number, default: null)
+  - Integrated loudness tolerance (in LU). Smaller values are stricter.
+
+- `verification.custom_tp_tolerance` (number, default: null)
+  - True peak tolerance (in dB). Controls how much measured peak may exceed your target ceiling.
+
+- `verification.custom_lra_tolerance` (number, default: null)
+  - Loudness range tolerance (in LU). Smaller values are stricter.
+
+#### Cache behavior (automatic)
+
+Verification measurements are cached in a local **SQLite database** so repeat runs are faster.
+
+- First verification of a file: slow (full decode)
+- Later verification: fast (cache hit) if the file has not changed
+
+The cache is automatically invalidated when:
+
+- the file changes (size or modified time), or
+- you change targets/tolerances (the cache key includes these settings).
+
+Cache location
+
+- Stored in the USDB Syncer application data directory, next to `transcoder_config.json`.
+- The file is created and managed automatically.
+
 ## Audio configuration examples
 
 ### Example: Keep the default AAC output, no normalization

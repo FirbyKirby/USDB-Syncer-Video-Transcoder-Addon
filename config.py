@@ -122,7 +122,7 @@ class VerificationTolerance:
 class VerificationConfig:
     """Configuration for loudness verification."""
 
-    enabled: bool = True
+    enabled: bool = False  # Changed to False - opt-in for automatic downloads (High Issue #6)
     tolerance_preset: VerificationTolerancePreset = "balanced"
     custom_i_tolerance: Optional[float] = None
     custom_tp_tolerance: Optional[float] = None
@@ -288,4 +288,5 @@ def _parse_config(data: dict) -> TranscoderConfig:
         audio=AudioConfig(**get_clean_dict(AudioConfig, data.get("audio", {}))),
         general=GeneralConfig(**get_clean_dict(GeneralConfig, general_data)),
         usdb_integration=UsdbIntegrationConfig(**get_clean_dict(UsdbIntegrationConfig, data.get("usdb_integration", {}))),
+        verification=VerificationConfig(**get_clean_dict(VerificationConfig, data.get("verification", {}))),
     )

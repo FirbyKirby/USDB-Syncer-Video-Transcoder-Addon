@@ -453,6 +453,112 @@ class TranscoderSettingsDialog(QDialog):
         norm_layout.addRow(self.audio_norm_targets_container)
         audio_options_layout.addWidget(norm_group)
 
+        # Audio Verification Settings
+        verification_group = QGroupBox("Audio Verification")
+        verification_layout = QFormLayout(verification_group)
+
+        # Keep a reference to lock group height for consistent sizing
+        self._audio_verification_group = verification_group
+
+        self.verification_enabled = QCheckBox("Verify normalization before transcoding")
+        self.verification_enabled.setToolTip(
+            "<b>Verify Normalization Before Transcoding</b><br/>"
+            "Check if audio is already normalized correctly before transcoding.<br/>"
+            "Saves time by skipping files that are already at the target loudness level.<br/>"
+            "<br/>"
+            "<b>⚠️ Performance Impact:</b> Adds analysis time for each audio file (several seconds per file).<br/>"
+            "<b>Best for:</b> Libraries with mixed normalization states.<br/>"
+            "<br/>"
+            "<b>How it works:</b> Analyzes audio loudness and compares to target.<br/>"
+            "<b>When enabled:</b> Files within tolerance are skipped.<br/>"
+            "<b>When disabled:</b> All audio is transcoded regardless of current loudness."
+        )
+        verification_layout.addRow(self.verification_enabled)
+
+        self.verification_tolerance_preset = QComboBox()
+        self.verification_tolerance_preset.addItem("Strict", "strict")
+        self.verification_tolerance_preset.addItem("Balanced (recommended)", "balanced")
+        self.verification_tolerance_preset.addItem("Relaxed", "relaxed")
+        self.verification_tolerance_preset.setToolTip(
+            "<b>Verification Tolerance</b><br/>"
+            "How close audio must be to the target loudness to skip transcoding.<br/>"
+            "<br/>"
+            "<b>Strict:</b> Closest match to target loudness. Reduces retranscoding but may be too strict.<br/>"
+            "<b>Balanced (recommended):</b> Differences are rarely noticeable. Good for most users.<br/>"
+            "<b>Relaxed:</b> Fastest and least picky. May allow slightly audible differences.<br/>"
+            "<br/>"
+            "<b>Technical details:</b><br/>"
+            "• Strict: ±1.0 LU integrated, +0.3 dB peak, ±2 LU range<br/>"
+            "• Balanced: ±1.5 LU integrated, +0.5 dB peak, ±3 LU range<br/>"
+            "• Relaxed: ±2.0 LU integrated, +0.8 dB peak, ±4 LU range"
+        )
+        verification_layout.addRow("Tolerance:", self.verification_tolerance_preset)
+
+        # Advanced options (collapsible)
+        self.verification_advanced_toggle = QCheckBox("Show advanced options")
+        self.verification_advanced_toggle.setToolTip(
+            "<b>Advanced Options</b><br/>"
+            "Show custom tolerance fields for power users.<br/>"
+            "Most users should use the preset options above."
+        )
+        verification_layout.addRow(self.verification_advanced_toggle)
+
+        # Container for advanced custom tolerance fields
+        self.verification_advanced_container = QWidget()
+        advanced_layout = QFormLayout(self.verification_advanced_container)
+        advanced_layout.setContentsMargins(20, 0, 0, 0)  # Indent advanced options
+
+        self.verification_custom_i_tolerance = QDoubleSpinBox()
+        self.verification_custom_i_tolerance.setDecimals(1)
+        self.verification_custom_i_tolerance.setRange(0.1, 5.0)
+        self.verification_custom_i_tolerance.setSingleStep(0.1)
+        self.verification_custom_i_tolerance.setSuffix(" LU")
+        self.verification_custom_i_tolerance.setSpecialValueText("Use preset")
+        self.verification_custom_i_tolerance.setToolTip(
+            "<b>Custom Integrated Loudness Tolerance</b><br/>"
+            "How much the measured loudness can differ from the target.<br/>"
+            "Lower values are stricter. Higher values allow more variation.<br/>"
+            "<br/>"
+            "<b>Recommended range:</b> 0.5-2.0 LU"
+        )
+
+        self.verification_custom_tp_tolerance = QDoubleSpinBox()
+        self.verification_custom_tp_tolerance.setDecimals(1)
+        self.verification_custom_tp_tolerance.setRange(0.1, 2.0)
+        self.verification_custom_tp_tolerance.setSingleStep(0.1)
+        self.verification_custom_tp_tolerance.setSuffix(" dB")
+        self.verification_custom_tp_tolerance.setSpecialValueText("Use preset")
+        self.verification_custom_tp_tolerance.setToolTip(
+            "<b>Custom True Peak Tolerance</b><br/>"
+            "How much the peak level can exceed the target ceiling.<br/>"
+            "Helps prevent clipping during playback.<br/>"
+            "<br/>"
+            "<b>Recommended range:</b> 0.3-0.8 dB"
+        )
+
+        self.verification_custom_lra_tolerance = QDoubleSpinBox()
+        self.verification_custom_lra_tolerance.setDecimals(1)
+        self.verification_custom_lra_tolerance.setRange(0.5, 10.0)
+        self.verification_custom_lra_tolerance.setSingleStep(0.5)
+        self.verification_custom_lra_tolerance.setSuffix(" LU")
+        self.verification_custom_lra_tolerance.setSpecialValueText("Use preset")
+        self.verification_custom_lra_tolerance.setToolTip(
+            "<b>Custom Loudness Range Tolerance</b><br/>"
+            "How much the dynamic range can differ from the target.<br/>"
+            "Controls variation in quiet vs loud parts of audio.<br/>"
+            "<br/>"
+            "<b>Recommended range:</b> 2-4 LU"
+        )
+
+        advanced_layout.addRow("Integrated loudness tolerance:", self.verification_custom_i_tolerance)
+        advanced_layout.addRow("True peak tolerance:", self.verification_custom_tp_tolerance)
+        advanced_layout.addRow("Loudness range tolerance:", self.verification_custom_lra_tolerance)
+
+        verification_layout.addRow(self.verification_advanced_container)
+        self.verification_advanced_container.setVisible(False)
+
+        audio_options_layout.addWidget(verification_group)
+
         col3.addWidget(audio_group)
         col3.addStretch()
 
@@ -478,16 +584,35 @@ class TranscoderSettingsDialog(QDialog):
         self.audio_codec.currentIndexChanged.connect(self.audio_codec_stack.setCurrentIndex)
         self.audio_normalization_enabled.stateChanged.connect(self._toggle_audio_normalization_enabled)
         self.audio_normalization_use_usdb_defaults.stateChanged.connect(self._toggle_audio_normalization_usdb_defaults)
+        
+        # Verification connections
+        self.verification_enabled.stateChanged.connect(self._toggle_verification_enabled)
+        self.verification_advanced_toggle.stateChanged.connect(self._toggle_verification_advanced)
 
         # Initial visibility
         self._toggle_audio_normalization_enabled(
             Qt.CheckState.Checked.value if self.audio_normalization_enabled.isChecked() else Qt.CheckState.Unchecked.value
+        )
+        self._toggle_verification_enabled(
+            Qt.CheckState.Checked.value if self.verification_enabled.isChecked() else Qt.CheckState.Unchecked.value
         )
 
     def _toggle_audio_normalization_usdb_defaults(self, state: int) -> None:
         """Toggle visibility of target fields based on USDB defaults checkbox."""
         visible = state == Qt.CheckState.Unchecked.value
         self.audio_norm_targets_container.setVisible(visible)
+
+    def _toggle_verification_enabled(self, state: int) -> None:
+        """Toggle enabled state of verification controls."""
+        enabled = state == Qt.CheckState.Checked.value
+        self.verification_tolerance_preset.setEnabled(enabled)
+        self.verification_advanced_toggle.setEnabled(enabled)
+        self.verification_advanced_container.setEnabled(enabled)
+
+    def _toggle_verification_advanced(self, state: int) -> None:
+        """Toggle visibility of advanced verification options."""
+        visible = state == Qt.CheckState.Checked.value
+        self.verification_advanced_container.setVisible(visible)
 
     def _create_h264_settings(self) -> QWidget:
         widget = QWidget()
@@ -861,6 +986,7 @@ class TranscoderSettingsDialog(QDialog):
             "backup_suffix": self.backup_suffix.isVisible(),
             "backup_suffix_label": self.backup_suffix_label.isVisible(),
             "audio_norm_targets": self.audio_norm_targets_container.isVisible(),
+            "verification_advanced": self.verification_advanced_container.isVisible(),
             "manual_res": self.manual_res.isVisible(),
             "res_row_label": self.res_row_label.isVisible(),
             "manual_fps": self.manual_fps.isVisible(),
@@ -871,6 +997,7 @@ class TranscoderSettingsDialog(QDialog):
         self.backup_suffix.setVisible(True)
         self.backup_suffix_label.setVisible(True)
         self.audio_norm_targets_container.setVisible(True)
+        self.verification_advanced_container.setVisible(True)
         self.manual_res.setVisible(True)
         self.res_row_label.setVisible(True)
         self.manual_fps.setVisible(True)
@@ -915,6 +1042,7 @@ class TranscoderSettingsDialog(QDialog):
         self.backup_suffix.setVisible(current_visibility["backup_suffix"])
         self.backup_suffix_label.setVisible(current_visibility["backup_suffix_label"])
         self.audio_norm_targets_container.setVisible(current_visibility["audio_norm_targets"])
+        self.verification_advanced_container.setVisible(current_visibility["verification_advanced"])
         self.manual_res.setVisible(current_visibility["manual_res"])
         self.res_row_label.setVisible(current_visibility["res_row_label"])
         self.manual_fps.setVisible(current_visibility["manual_fps"])
@@ -1069,6 +1197,45 @@ class TranscoderSettingsDialog(QDialog):
         # Force audio transcode
         self.force_transcode_audio.setChecked(bool(getattr(self.cfg.audio, "force_transcode_audio", False)))
 
+        # Verification settings
+        self.verification_enabled.setChecked(self.cfg.verification.enabled)
+        for i in range(self.verification_tolerance_preset.count()):
+            if self.verification_tolerance_preset.itemData(i) == self.cfg.verification.tolerance_preset:
+                self.verification_tolerance_preset.setCurrentIndex(i)
+                break
+
+        # Load custom tolerances if they exist
+        if self.cfg.verification.custom_i_tolerance is not None:
+            self.verification_custom_i_tolerance.setValue(self.cfg.verification.custom_i_tolerance)
+        else:
+            self.verification_custom_i_tolerance.setValue(0.1)  # Minimum value
+
+        if self.cfg.verification.custom_tp_tolerance is not None:
+            self.verification_custom_tp_tolerance.setValue(self.cfg.verification.custom_tp_tolerance)
+        else:
+            self.verification_custom_tp_tolerance.setValue(0.1)  # Minimum value
+
+        if self.cfg.verification.custom_lra_tolerance is not None:
+            self.verification_custom_lra_tolerance.setValue(self.cfg.verification.custom_lra_tolerance)
+        else:
+            self.verification_custom_lra_tolerance.setValue(0.5)  # Minimum value
+
+        # Check advanced toggle if any custom tolerances are set
+        has_custom = (
+            self.cfg.verification.custom_i_tolerance is not None
+            or self.cfg.verification.custom_tp_tolerance is not None
+            or self.cfg.verification.custom_lra_tolerance is not None
+        )
+        self.verification_advanced_toggle.setChecked(has_custom)
+
+        # Trigger enable/disable updates
+        self._toggle_verification_enabled(
+            Qt.CheckState.Checked.value if self.verification_enabled.isChecked() else Qt.CheckState.Unchecked.value
+        )
+        self._toggle_verification_advanced(
+            Qt.CheckState.Checked.value if self.verification_advanced_toggle.isChecked() else Qt.CheckState.Unchecked.value
+        )
+
     def save_settings(self) -> None:
         self.cfg.auto_transcode_enabled = self.auto_transcode_enabled.isChecked()
         
@@ -1160,6 +1327,28 @@ class TranscoderSettingsDialog(QDialog):
         self.cfg.audio.audio_normalization_target = float(self.audio_normalization_target.value())
         self.cfg.audio.audio_normalization_true_peak = float(self.audio_normalization_true_peak.value())
         self.cfg.audio.audio_normalization_lra = float(self.audio_normalization_lra.value())
+
+        # Verification settings
+        self.cfg.verification.enabled = self.verification_enabled.isChecked()
+        self.cfg.verification.tolerance_preset = self.verification_tolerance_preset.currentData()  # type: ignore
+
+        # Save custom tolerances only if advanced options are shown and values are not at minimum
+        if self.verification_advanced_toggle.isChecked():
+            # Only save custom values if they're different from the minimum (which means "use preset")
+            self.cfg.verification.custom_i_tolerance = (
+                self.verification_custom_i_tolerance.value() if self.verification_custom_i_tolerance.value() > 0.1 else None
+            )
+            self.cfg.verification.custom_tp_tolerance = (
+                self.verification_custom_tp_tolerance.value() if self.verification_custom_tp_tolerance.value() > 0.1 else None
+            )
+            self.cfg.verification.custom_lra_tolerance = (
+                self.verification_custom_lra_tolerance.value() if self.verification_custom_lra_tolerance.value() > 0.5 else None
+            )
+        else:
+            # Clear custom tolerances when advanced is not shown
+            self.cfg.verification.custom_i_tolerance = None
+            self.cfg.verification.custom_tp_tolerance = None
+            self.cfg.verification.custom_lra_tolerance = None
         
         config.save_config(self.cfg)
 

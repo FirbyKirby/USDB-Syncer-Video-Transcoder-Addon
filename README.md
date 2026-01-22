@@ -26,11 +26,15 @@ What it does
 - Optional audio normalization:
   - EBU R128 loudness normalization via FFmpeg `loudnorm` (two-pass)
   - ReplayGain tagging via FFmpeg `replaygain` (when supported by the output format/player)
+- Optional **normalization verification** (standalone audio)
+  - Measures loudness before transcoding and skips already-correct files (within tolerance)
+  - Can save time and reduce unnecessary re-encoding
 - Updates USDB_Syncer metadata to avoid re-download loops and updates the song’s #VIDEO tag
 - Updates USDB_Syncer metadata for both media types to avoid re-download loops, and updates song headers:
   - `#VIDEO:` for video
   - `#AUDIO:` and `#MP3:` for standalone audio
 - Can batch-transcode synchronized media from the GUI (Tools → Batch Media Transcode). See [docs/BATCH_TRANSCODING.md](docs/BATCH_TRANSCODING.md)
+ - Can batch-transcode synchronized media from the GUI (Tools → Batch Media Transcode) using either the **batch wizard** or **legacy batch** flow. See [docs/BATCH_TRANSCODING.md](docs/BATCH_TRANSCODING.md)
 
 Codec compatibility snapshot
 - H.264/AVC (MP4): Best compatibility

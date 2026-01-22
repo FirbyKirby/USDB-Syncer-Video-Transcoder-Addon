@@ -92,12 +92,34 @@ def _parse_ffprobe_output(data: dict, path: Path) -> Optional[AudioInfo]:
     streams = data.get("streams", [])
     format_info = data.get("format", {})
 
+    # Debug aid: ffprobe sometimes reports embedded artwork as a "video" stream
+    # (typically with disposition.attached_pic=1). When users report misleading
+    # has_video=True for audio-only songs, this stream dump helps confirm whether
+    # the detected "video" is actually album art.
+    if _logger.isEnabledFor(logging.DEBUG):
+        summaries: list[str] = []
+        for idx, stream in enumerate(streams):
+            disp = stream.get("disposition") or {}
+            summaries.append(
+                " ".join(
+                    [
+                        f"stream[{idx}]",
+                        f"type={stream.get('codec_type')}",
+                        f"codec={stream.get('codec_name')}",
+                        f"attached_pic={disp.get('attached_pic')}",
+                    ]
+                )
+            )
+        _logger.debug(f"ffprobe streams for {path}: " + "; ".join(summaries))
+
     audio_stream = None
     has_video = False
     for stream in streams:
         codec_type = stream.get("codec_type")
         if codec_type == "video":
-            has_video = True
+            disposition = stream.get("disposition") or {}
+            if disposition.get("attached_pic") != 1:
+                has_video = True
         if codec_type == "audio" and audio_stream is None:
             audio_stream = stream
 
@@ -315,4 +337,3 @@ def _has_replaygain_in_tags(tags: dict) -> bool:
 
     tag_keys = {k.upper() for k in tags.keys()}
     return bool(replaygain_keys & tag_keys)
-

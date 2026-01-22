@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass, replace
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
@@ -65,8 +66,10 @@ def process_audio(
 
     from .audio_analyzer import analyze_audio
     from .codecs import get_audio_codec_handler
-    from .audio_normalizer import maybe_apply_audio_normalization
+    from .audio_normalizer import maybe_apply_audio_normalization, LoudnormTargets
     from .sync_meta_updater import update_sync_meta_audio
+    from .loudness_verifier import analyze_and_verify, verify_loudnorm_normalization
+    from .loudness_cache import LoudnessCache, TargetSettings, get_cache_path
 
     start_time = time.time()
 
@@ -103,15 +106,77 @@ def process_audio(
     if cfg.audio.audio_normalization_enabled:
         if cfg.audio.audio_normalization_method == "loudnorm":
             if format_matches and not getattr(cfg.audio, "force_transcode_audio", False):
-                slog.info(f"Audio format matches target and R128 normalization enabled - assuming file is already normalized, skipping transcode. To force re-normalization, enable 'Force Audio Transcode' in settings.")
-                return TranscodeResult(
-                    success=True,
-                    output_path=media_path,
-                    original_backed_up=False,
-                    backup_path=None,
-                    duration_seconds=time.time() - start_time,
-                    error_message=None,
-                )
+                # Check if verification is enabled
+                if cfg.verification.enabled:
+                    # Perform verification
+                    slog.info(f"Verifying audio normalization for {media_path.name}")
+                    cache_path = get_cache_path()
+                    cache = LoudnessCache(cache_path)
+
+                    # Get targets and tolerances
+                    targets = LoudnormTargets(
+                        integrated_lufs=float(cfg.audio.audio_normalization_target),
+                        true_peak_dbtp=float(cfg.audio.audio_normalization_true_peak),
+                        lra_lu=float(cfg.audio.audio_normalization_lra),
+                    )
+                    tolerances = cfg.verification.get_active_tolerances()
+
+                    # Create target settings for cache
+                    target_settings = TargetSettings(
+                        normalization_method="loudnorm",
+                        target_i=targets.integrated_lufs,
+                        target_tp=targets.true_peak_dbtp,
+                        target_lra=targets.lra_lu,
+                        tolerance_preset=cfg.verification.tolerance_preset,
+                    )
+
+                    # Check cache first
+                    cached_entry = cache.get(media_path, target_settings)
+                    if cached_entry:
+                        slog.info(f"Using cached verification result from {datetime.fromtimestamp(cached_entry.analyzed_at)}")
+                        verification_result = verify_loudnorm_normalization(
+                            cached_entry.measurements, targets, tolerances
+                        )
+                    else:
+                        # Run analysis and verify
+                        verification_result = analyze_and_verify(
+                            input_path=media_path,
+                            targets=targets,
+                            tolerances=tolerances,
+                            timeout_seconds=min(int(cfg.general.timeout_seconds), 300),
+                            slog=slog,
+                            cache=cache,
+                        )
+                        # Cache the result if analysis succeeded (even if out of tolerance, measurements are still valid)
+                        if "Analysis failed" not in str(verification_result.reasons):
+                            cache.put(media_path, target_settings, verification_result.measurements, song_id=song.song_id)
+
+                    # Log verification outcome
+                    if verification_result.within_tolerance:
+                        slog.info("Audio within tolerance - skipping transcode")
+                        return TranscodeResult(
+                            success=True,
+                            output_path=media_path,
+                            original_backed_up=False,
+                            backup_path=None,
+                            duration_seconds=time.time() - start_time,
+                            error_message=None,
+                        )
+                    else:
+                        slog.info(f"Audio out of tolerance: {', '.join(verification_result.reasons)}")
+                        normalization_needed = True
+                        reasons.append("normalization requested (loudnorm - out of tolerance)")
+                else:
+                    # Verification disabled, assume normalized like before
+                    slog.info(f"Audio format matches target and R128 normalization enabled - assuming file is already normalized, skipping transcode. To force re-normalization, enable 'Force Audio Transcode' in settings.")
+                    return TranscodeResult(
+                        success=True,
+                        output_path=media_path,
+                        original_backed_up=False,
+                        backup_path=None,
+                        duration_seconds=time.time() - start_time,
+                        error_message=None,
+                    )
             else:
                 normalization_needed = True
                 reasons.append("normalization requested (loudnorm)")
@@ -207,14 +272,44 @@ def process_audio(
 
     # Apply normalization filters (Stage 3)
     # IMPORTANT: must occur before encoding; stream-copy path skips normalization.
+    cache = None
     if normalization_needed:
+        # Check if we have precomputed measurements from verification
+        precomputed_meas = None
+        if cfg.verification.enabled and cfg.audio.audio_normalization_method == "loudnorm":
+            # Try to get from cache or from recent verification
+            # For now, we'll check cache again, but ideally we'd pass it from above
+            # Since verification already ran, we can reuse the measurements
+            # But to keep it simple, let's check cache again
+            cache_path = get_cache_path()
+            cache = LoudnessCache(cache_path)
+            targets = LoudnormTargets(
+                integrated_lufs=float(cfg.audio.audio_normalization_target),
+                true_peak_dbtp=float(cfg.audio.audio_normalization_true_peak),
+                lra_lu=float(cfg.audio.audio_normalization_lra),
+            )
+            target_settings = TargetSettings(
+                normalization_method="loudnorm",
+                target_i=targets.integrated_lufs,
+                target_tp=targets.true_peak_dbtp,
+                target_lra=targets.lra_lu,
+                tolerance_preset=cfg.verification.tolerance_preset,
+            )
+            cached_entry = cache.get(media_path, target_settings)
+            if cached_entry:
+                precomputed_meas = cached_entry.measurements
+
         cmd = maybe_apply_audio_normalization(
             base_cmd=cmd,
             input_path=media_path,
             cfg=cfg,
             slog=slog,
             stream_copy=stream_copy,
+            precomputed_meas=precomputed_meas,
+            cache=cache,
         )
+    if cache:
+        cache.close()
 
     slog.debug(f"FFMPEG command (audio): {' '.join(cmd)}")
 

@@ -10,12 +10,14 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 
 from .audio_normalizer import LoudnormMeasurements, LoudnormTargets, analyze_loudnorm_two_pass
 
 if TYPE_CHECKING:
     from usdb_syncer.logger import SongLogger
+
+    from .loudness_cache import LoudnessCache
 
 _logger = logging.getLogger(__name__)
 
@@ -99,6 +101,7 @@ def analyze_and_verify(
     tolerances: VerificationTolerance,
     timeout_seconds: int,
     slog: "SongLogger",
+    cache: Optional["LoudnessCache"] = None,
 ) -> VerificationResult:
     """Run loudnorm analysis and verify against targets.
 
@@ -118,6 +121,7 @@ def analyze_and_verify(
             targets=targets,
             timeout_seconds=timeout_seconds,
             slog=slog,
+            cache=cache,
         )
         return verify_loudnorm_normalization(measurements, targets, tolerances)
     except Exception as e:
