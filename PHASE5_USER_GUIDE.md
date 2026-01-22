@@ -236,7 +236,7 @@ A: Very little - typically ~500 bytes per analyzed file. 10,000 files = ~5 MB.
 
 **Q: Can I clear the cache?**
 
-A: Not yet from UI. You can manually delete `transcoder_loudness_cache.sqlite` in the USDB Syncer data directory. This will be added in a future update.
+A: Not yet from UI. You can manually delete `transcoder_cache.sqlite` in the USDB Syncer data directory. This will be added in a future update.
 
 **Q: Does legacy batch use the cache?**
 

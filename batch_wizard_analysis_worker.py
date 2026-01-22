@@ -142,6 +142,7 @@ class AnalysisWorker(QtCore.QThread):
                                 timeout_seconds=300,  # 5 minute timeout
                                 slog=slog,
                                 cache=self._cache,
+                                duration_seconds=scan_result.duration_seconds,
                             )
                         
                         # Store in cache if successful

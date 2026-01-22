@@ -146,6 +146,7 @@ def process_audio(
                             timeout_seconds=min(int(cfg.general.timeout_seconds), 300),
                             slog=slog,
                             cache=cache,
+                            duration_seconds=audio_info.duration_seconds,
                         )
                         # Cache the result if analysis succeeded (even if out of tolerance, measurements are still valid)
                         if "Analysis failed" not in str(verification_result.reasons):
@@ -307,6 +308,7 @@ def process_audio(
             stream_copy=stream_copy,
             precomputed_meas=precomputed_meas,
             cache=cache,
+            duration_seconds=audio_info.duration_seconds,
         )
     if cache:
         cache.close()

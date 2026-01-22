@@ -102,6 +102,7 @@ def analyze_and_verify(
     timeout_seconds: int,
     slog: "SongLogger",
     cache: Optional["LoudnessCache"] = None,
+    duration_seconds: Optional[float] = None,
 ) -> VerificationResult:
     """Run loudnorm analysis and verify against targets.
 
@@ -122,6 +123,7 @@ def analyze_and_verify(
             timeout_seconds=timeout_seconds,
             slog=slog,
             cache=cache,
+            duration_seconds=duration_seconds,
         )
         return verify_loudnorm_normalization(measurements, targets, tolerances)
     except Exception as e:

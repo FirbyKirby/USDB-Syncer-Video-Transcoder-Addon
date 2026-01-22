@@ -140,6 +140,7 @@ def analyze_loudnorm_two_pass(
     timeout_seconds: int,
     slog: "SongLogger",
     cache: Optional["LoudnessCache"] = None,
+    duration_seconds: Optional[float] = None,
 ) -> LoudnormMeasurements:
     """Run loudnorm pass 1 analysis and return measurements for pass 2."""
 
@@ -177,24 +178,70 @@ def analyze_loudnorm_two_pass(
     slog.debug(f"FFMPEG command (loudnorm pass 1): {' '.join(cmd)}")
 
     start_time = time.time()
-    with LinuxEnvCleaner() as env:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout_seconds,
-            env=env,
-        )
-    end_time = time.time()
-    wall_seconds = end_time - start_time
+    stderr_lines = []
 
-    if result.returncode != 0:
-        tail = (result.stderr or "").strip()[-1000:]
-        raise RuntimeError(f"ffmpeg loudnorm pass 1 failed (code {result.returncode}): {tail}")
+    try:
+        with LinuxEnvCleaner() as env:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                bufsize=1,
+                universal_newlines=True,
+            )
 
-    obj = _parse_loudnorm_json(result.stderr or "")
+            if not process.stderr:
+                raise RuntimeError("Failed to open stderr pipe for ffmpeg process")
+
+            last_logged_percent = -10.0
+
+            while True:
+                line = process.stderr.readline()
+                if not line and process.poll() is not None:
+                    break
+
+                if not line:
+                    continue
+
+                stderr_lines.append(line)
+
+                # Show progress for long analyses
+                if duration_seconds and duration_seconds > 30:  # Only show progress for files longer than 30 seconds
+                    elapsed = time.time() - start_time
+                    if elapsed > 5:  # Don't show progress too early
+                        # Estimate progress based on time (rough approximation)
+                        estimated_percent = min(95.0, (elapsed / duration_seconds) * 100)
+                        if int(estimated_percent // 10) > int(last_logged_percent // 10):
+                            slog.info(f"Loudnorm analysis: ~{estimated_percent:.0f}% complete (elapsed: {elapsed:.1f}s)")
+                            last_logged_percent = estimated_percent
+
+                # Check timeout
+                if time.time() - start_time > timeout_seconds:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                    raise subprocess.TimeoutExpired(cmd, timeout_seconds)
+
+            process.wait()
+            wall_seconds = time.time() - start_time
+
+            if process.returncode != 0:
+                stderr_text = "".join(stderr_lines)
+                tail = stderr_text.strip()[-1000:]
+                raise RuntimeError(f"ffmpeg loudnorm pass 1 failed (code {process.returncode}): {tail}")
+
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"ffmpeg loudnorm pass 1 timeout after {timeout_seconds}s")
+
+    stderr_text = "".join(stderr_lines)
+    obj = _parse_loudnorm_json(stderr_text)
     meas = _extract_measurements(obj)
 
     slog.info(
@@ -260,6 +307,7 @@ def maybe_apply_audio_normalization(
     stream_copy: bool,
     precomputed_meas: Optional[LoudnormMeasurements] = None,
     cache: Optional["LoudnessCache"] = None,
+    duration_seconds: Optional[float] = None,
 ) -> list[str]:
     """Return an ffmpeg command with normalization filters injected when enabled.
 
@@ -297,6 +345,7 @@ def maybe_apply_audio_normalization(
                     timeout_seconds=analysis_timeout,
                     slog=slog,
                     cache=cache,
+                    duration_seconds=duration_seconds,
                 )
             pass2_filter = build_loudnorm_pass2_filter(targets, meas)
             slog.info("Applying loudnorm normalization (pass 2)")

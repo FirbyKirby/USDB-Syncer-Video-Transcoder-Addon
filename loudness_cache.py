@@ -404,4 +404,4 @@ class LoudnessCache:
 def get_cache_path() -> Path:
     """Return path to cache database in USDB Syncer data directory."""
     from usdb_syncer.utils import AppPaths
-    return AppPaths.db.parent / "transcoder_loudness_cache.sqlite"
+    return AppPaths.db.parent / "transcoder_cache.sqlite"

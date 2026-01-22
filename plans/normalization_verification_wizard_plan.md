@@ -509,7 +509,7 @@ Additional table `performance_stats` (universal; local-only):
 
 Store the cache alongside the addon config in the **USDB Syncer application data directory** (user-writable):
 
-- `AppPaths.db.parent / transcoder_loudness_cache.sqlite`
+- `AppPaths.db.parent / transcoder_cache.sqlite`
   - This is the same parent directory used by [`get_config_path()`](config.py:156), which resolves to `AppPaths.db.parent / transcoder_config.json`.
   - This remains writable regardless of whether the addon code is loaded from a zip.
 
